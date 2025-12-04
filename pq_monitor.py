@@ -10,6 +10,7 @@ import time
 import json
 import base64
 import logging
+import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -20,8 +21,6 @@ from google.oauth2.service_account import Credentials as ServiceAccountCredentia
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
 
 from config import USER_MAPPING, COLUMN_C_INDEX, COLUMN_E_INDEX, START_ROW
 
@@ -163,28 +162,34 @@ class GoogleSheetsClient:
 
 
 class SlackNotifier:
-    """Client for sending Slack notifications"""
+    """Client for sending Slack notifications via webhook"""
 
-    def __init__(self, token: str, channel: str):
-        self.client = WebClient(token=token)
-        self.channel = channel
-        logger.info(f"Slack client initialized for channel: {channel}")
+    def __init__(self, webhook_url: str):
+        self.webhook_url = webhook_url
+        logger.info("Slack webhook client initialized")
 
     def send_notification(self, user_id: str, initials: str, row_number: int) -> bool:
-        """Send a notification to a user in the specified channel"""
+        """Send a notification to a user via webhook"""
         try:
             message = f"<@{user_id}> please update your ETA in the PQs (Row {row_number})"
 
-            response = self.client.chat_postMessage(
-                channel=self.channel,
-                text=message
+            payload = {
+                "text": message
+            }
+
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=10
             )
 
+            response.raise_for_status()
             logger.info(f"Sent notification to {initials} (User ID: {user_id}) for row {row_number}")
-            return response['ok']
+            return response.status_code == 200
 
-        except SlackApiError as e:
-            logger.error(f"Error sending Slack message: {e.response['error']}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error sending Slack message: {e}")
             return False
 
 
@@ -198,7 +203,7 @@ class PQMonitor:
         # Initialize configuration
         self.spreadsheet_id = os.getenv('SPREADSHEET_ID')
         self.sheet_name = os.getenv('SHEET_NAME', 'Sheet1')
-        self.slack_channel = os.getenv('SLACK_CHANNEL')
+        self.slack_webhook_url = os.getenv('SLACK_WEBHOOK_URL')
         self.notification_interval = int(os.getenv('NOTIFICATION_INTERVAL', '10800'))  # 3 hours
         self.check_interval = int(os.getenv('CHECK_INTERVAL', '300'))  # 5 minutes
 
@@ -213,7 +218,7 @@ class PQMonitor:
             credentials_path=google_creds_path,
             credentials_json=google_creds_json
         )
-        self.slack_client = SlackNotifier(os.getenv('SLACK_BOT_TOKEN'), self.slack_channel)
+        self.slack_client = SlackNotifier(self.slack_webhook_url)
         self.notification_state = NotificationState()
 
         logger.info("PQ Monitor initialized successfully")
@@ -221,8 +226,7 @@ class PQMonitor:
     def _validate_config(self):
         """Validate required configuration"""
         required_vars = [
-            'SLACK_BOT_TOKEN',
-            'SLACK_CHANNEL',
+            'SLACK_WEBHOOK_URL',
             'SPREADSHEET_ID',
         ]
 

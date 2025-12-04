@@ -17,7 +17,7 @@ The easiest way to run this monitor is using GitHub Actions, which runs automati
 ### Prerequisites
 
 - Google Sheets API credentials (service account JSON file)
-- Slack Bot Token with permissions to post in channels
+- Slack Incoming Webhook URL
 - Access to the PQs spreadsheet
 
 ### Setup Instructions
@@ -45,19 +45,17 @@ The easiest way to run this monitor is using GitHub Actions, which runs automati
    - Go to your Google Spreadsheet
    - Click "Share" and add this email with "Viewer" permissions
 
-#### 2. Configure Slack Bot
+#### 2. Configure Slack Webhook
 
 1. Go to [Slack API](https://api.slack.com/apps)
-2. Create a new app or use an existing bot
-3. Add the following OAuth scopes under "OAuth & Permissions":
-   - `chat:write`
-   - `channels:read`
-4. Install the app to your workspace
-5. Copy the "Bot User OAuth Token" (starts with `xoxb-`)
-6. Invite the bot to #ctc-bot-update channel in Slack:
-   ```
-   /invite @your-bot-name
-   ```
+2. Create a new app or select an existing app
+3. In the left sidebar, click "Incoming Webhooks"
+4. Toggle "Activate Incoming Webhooks" to **On**
+5. Click "Add New Webhook to Workspace"
+6. Select the **#ctc-bot-update** channel (or your desired channel)
+7. Click "Allow"
+8. Copy the Webhook URL (looks like `https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXX`)
+9. Save this URL - you'll need it for GitHub Secrets
 
 #### 3. Encode Google Credentials
 
@@ -79,8 +77,7 @@ This will output a base64-encoded string. Copy this string - you'll need it in t
 
 | Secret Name | Value | Where to get it |
 |-------------|-------|-----------------|
-| `SLACK_BOT_TOKEN` | `xoxb-...` | From Slack API (step 2) |
-| `SLACK_CHANNEL` | `ctc-bot-update` | Your Slack channel name |
+| `SLACK_WEBHOOK_URL` | `https://hooks.slack.com/services/...` | From Slack webhook (step 2) |
 | `SPREADSHEET_ID` | `1dDYU1rGKYiiXxcJlYnh4lmM5UBJBPqtYIstZsiJG-ng` | From spreadsheet URL |
 | `SHEET_NAME` | `Sheet1` | Name of the tab in your spreadsheet |
 | `GOOGLE_CREDENTIALS_JSON` | `eyJhbGc...` (base64 string) | From step 3 |
@@ -143,8 +140,7 @@ cp .env.example .env
 
 Edit `.env`:
 ```
-SLACK_BOT_TOKEN=xoxb-your-actual-token
-SLACK_CHANNEL=ctc-bot-update
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 SPREADSHEET_ID=1dDYU1rGKYiiXxcJlYnh4lmM5UBJBPqtYIstZsiJG-ng
 SHEET_NAME=Sheet1
 GOOGLE_CREDENTIALS_PATH=credentials.json
@@ -189,7 +185,6 @@ USER_MAPPING = {
 |----------|-------------|---------|
 | `NOTIFICATION_INTERVAL` | Seconds between notifications to same user | 10800 (3 hours) |
 | `CHECK_INTERVAL` | Seconds between spreadsheet checks (local only) | 300 (5 minutes) |
-| `SLACK_CHANNEL` | Slack channel for notifications | ctc-bot-update |
 | `SHEET_NAME` | Name of the sheet tab | Sheet1 |
 | `START_ROW` | First row to check (in config.py) | 3 |
 
@@ -263,9 +258,9 @@ The GitHub Action will automatically use the updated mapping on the next run.
 - Re-run `encode_credentials.py` and update the secret if needed
 
 **"Error sending Slack message"**
-- Verify `SLACK_BOT_TOKEN` is correct (should start with `xoxb-`)
-- Ensure bot is invited to the channel specified in `SLACK_CHANNEL` secret
-- Check bot has `chat:write` permission
+- Verify `SLACK_WEBHOOK_URL` is correct (should start with `https://hooks.slack.com/services/`)
+- Ensure the webhook is configured for the correct channel
+- Test the webhook URL manually using curl to verify it works
 
 **Workflow not running on schedule**
 - GitHub Actions may delay scheduled workflows by a few minutes during high load
@@ -308,7 +303,7 @@ Logs are printed to console when running locally.
 - Never commit `.env` or `credentials.json` to git (they're in `.gitignore`)
 - GitHub Secrets are encrypted and only exposed during workflow runs
 - Use minimal permissions for the service account (Viewer is sufficient)
-- Keep your Slack bot token secure
+- Keep your Slack webhook URL secure - anyone with it can post to your channel
 
 ## License
 
