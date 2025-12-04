@@ -40,7 +40,7 @@ jobs:
         SLACK_BOT_TOKEN: ${{ secrets.QU_SLACK_BOT_TOKEN }}
         SPREADSHEET_ID: ${{ secrets.QU_SPREADSHEET_ID }}
         SHEET_NAME: ${{ secrets.QU_SHEET_NAME }}
-        GOOGLE_CREDENTIALS_JSON: ${{ secrets.QU_GOOGLE_CREDENTIALS_JSON }}
+        GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         GITHUB_ACTIONS: true
       run: |
         cd qu-monitor
