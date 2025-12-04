@@ -22,7 +22,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from config import USER_MAPPING, COLUMN_C_INDEX, COLUMN_E_INDEX, START_ROW
+from config import USER_MAPPING, COLUMN_C_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX, START_ROW
 
 # Configure logging
 logging.basicConfig(
@@ -245,8 +245,8 @@ class PQMonitor:
         """Check the spreadsheet and send notifications as needed"""
         try:
             # Read all data starting from row 3
-            # We need columns A through E, starting from row 3
-            range_notation = f"A{START_ROW}:E"
+            # We need columns A through F, starting from row 3
+            range_notation = f"A{START_ROW}:F"
             rows = self.sheets_client.read_sheet_data(
                 self.spreadsheet_id,
                 self.sheet_name,
@@ -270,17 +270,18 @@ class PQMonitor:
     def _process_row(self, row: List, row_number: int):
         """Process a single row and send notification if needed"""
         # Ensure row has enough columns
-        while len(row) < max(COLUMN_C_INDEX, COLUMN_E_INDEX) + 1:
+        while len(row) < max(COLUMN_C_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX) + 1:
             row.append('')
 
         column_c_value = row[COLUMN_C_INDEX].strip() if len(row) > COLUMN_C_INDEX else ''
         column_e_value = row[COLUMN_E_INDEX].strip() if len(row) > COLUMN_E_INDEX else ''
+        column_f_value = row[COLUMN_F_INDEX].strip() if len(row) > COLUMN_F_INDEX else ''
 
         row_key = f"row_{row_number}"
 
-        # Check if Column E (ETA) is empty
-        if not column_e_value:
-            # Column E is empty, check Column C for initials
+        # Check if BOTH Column E and Column F are empty
+        if not column_e_value and not column_f_value:
+            # Both columns E and F are empty, check Column C for initials
             if column_c_value and column_c_value in USER_MAPPING:
                 # Found initials, check if we should send notification
                 if self.notification_state.should_notify(row_key, self.notification_interval):
@@ -298,7 +299,7 @@ class PQMonitor:
             elif column_c_value:
                 logger.warning(f"Row {row_number}: Unknown initials '{column_c_value}'")
         else:
-            # Column E has a value, clear any notification state
+            # Either Column E or F has a value, clear any notification state
             self.notification_state.clear_row(row_key)
 
     def run_once(self):
