@@ -1,0 +1,63 @@
+name: PQs Monitor
+
+on:
+  schedule:
+    # Run every hour at minute 0
+    # This checks the spreadsheet frequently while respecting the 3-hour notification interval
+    - cron: '0 * * * *'
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  check-pqs:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Restore notification state
+      uses: actions/cache@v4
+      with:
+        path: notification_state.json
+        key: notification-state-${{ github.run_id }}
+        restore-keys: |
+          notification-state-
+
+    - name: Run PQ Monitor
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        SHEET_NAME: ${{ secrets.SHEET_NAME }}
+        GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        NOTIFICATION_INTERVAL: ${{ secrets.NOTIFICATION_INTERVAL }}
+        GITHUB_ACTIONS: true
+      run: |
+        python pq_monitor.py
+
+    - name: Save notification state
+      if: always()
+      uses: actions/cache/save@v4
+      with:
+        path: notification_state.json
+        key: notification-state-${{ github.run_id }}

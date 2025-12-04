@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import json
+import base64
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -29,7 +30,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('pq_monitor.log'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -95,8 +95,9 @@ class NotificationState:
 class GoogleSheetsClient:
     """Client for interacting with Google Sheets API"""
 
-    def __init__(self, credentials_path: str):
+    def __init__(self, credentials_path: str = None, credentials_json: str = None):
         self.credentials_path = credentials_path
+        self.credentials_json = credentials_json
         self.service = None
         self._authenticate()
 
@@ -105,15 +106,37 @@ class GoogleSheetsClient:
         creds = None
 
         try:
-            # Try service account credentials first
-            if os.path.exists(self.credentials_path):
+            # Try credentials from environment variable (base64 encoded) first
+            if self.credentials_json:
+                try:
+                    # Decode base64 if needed
+                    if self.credentials_json.startswith('ey') or len(self.credentials_json) > 500:
+                        # Looks like base64
+                        try:
+                            decoded = base64.b64decode(self.credentials_json)
+                            creds_info = json.loads(decoded)
+                        except:
+                            # Maybe it's already JSON
+                            creds_info = json.loads(self.credentials_json)
+                    else:
+                        creds_info = json.loads(self.credentials_json)
+
+                    creds = ServiceAccountCredentials.from_service_account_info(
+                        creds_info, scopes=SCOPES
+                    )
+                    logger.info("Authenticated with service account credentials from environment")
+                except Exception as e:
+                    logger.error(f"Error parsing credentials from environment: {e}")
+                    raise
+            # Try service account credentials from file
+            elif self.credentials_path and os.path.exists(self.credentials_path):
                 creds = ServiceAccountCredentials.from_service_account_file(
                     self.credentials_path, scopes=SCOPES
                 )
-                logger.info("Authenticated with service account credentials")
+                logger.info("Authenticated with service account credentials from file")
             else:
-                logger.error(f"Credentials file not found: {self.credentials_path}")
-                raise FileNotFoundError(f"Credentials file not found: {self.credentials_path}")
+                logger.error("No credentials provided")
+                raise ValueError("No credentials provided")
 
             self.service = build('sheets', 'v4', credentials=creds)
             logger.info("Google Sheets API client initialized")
@@ -182,8 +205,14 @@ class PQMonitor:
         # Validate configuration
         self._validate_config()
 
-        # Initialize clients
-        self.sheets_client = GoogleSheetsClient(os.getenv('GOOGLE_CREDENTIALS_PATH'))
+        # Initialize clients - support both file and env var credentials
+        google_creds_path = os.getenv('GOOGLE_CREDENTIALS_PATH')
+        google_creds_json = os.getenv('GOOGLE_CREDENTIALS_JSON')
+
+        self.sheets_client = GoogleSheetsClient(
+            credentials_path=google_creds_path,
+            credentials_json=google_creds_json
+        )
         self.slack_client = SlackNotifier(os.getenv('SLACK_BOT_TOKEN'), self.slack_channel)
         self.notification_state = NotificationState()
 
@@ -195,7 +224,6 @@ class PQMonitor:
             'SLACK_BOT_TOKEN',
             'SLACK_CHANNEL',
             'SPREADSHEET_ID',
-            'GOOGLE_CREDENTIALS_PATH'
         ]
 
         missing_vars = [var for var in required_vars if not os.getenv(var)]
@@ -203,6 +231,11 @@ class PQMonitor:
         if missing_vars:
             logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
             raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
+        # Check that at least one credentials method is provided
+        if not os.getenv('GOOGLE_CREDENTIALS_PATH') and not os.getenv('GOOGLE_CREDENTIALS_JSON'):
+            logger.error("Missing Google credentials: provide either GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
+            raise ValueError("Missing Google credentials: provide either GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
 
     def check_and_notify(self):
         """Check the spreadsheet and send notifications as needed"""
@@ -264,9 +297,22 @@ class PQMonitor:
             # Column E has a value, clear any notification state
             self.notification_state.clear_row(row_key)
 
-    def run(self):
-        """Main run loop"""
-        logger.info("Starting PQ Monitor")
+    def run_once(self):
+        """Run a single check cycle (for scheduled execution)"""
+        logger.info("Starting PQ Monitor - Single Run Mode")
+        logger.info(f"Notification interval: {self.notification_interval} seconds ({self.notification_interval / 3600} hours)")
+
+        try:
+            logger.info("Running check cycle...")
+            self.check_and_notify()
+            logger.info("Check cycle completed successfully")
+        except Exception as e:
+            logger.error(f"Error during check cycle: {e}")
+            raise
+
+    def run_continuous(self):
+        """Main run loop for continuous operation (local use)"""
+        logger.info("Starting PQ Monitor - Continuous Mode")
         logger.info(f"Checking spreadsheet every {self.check_interval} seconds")
         logger.info(f"Notification interval: {self.notification_interval} seconds ({self.notification_interval / 3600} hours)")
 
@@ -287,7 +333,12 @@ def main():
     """Main entry point"""
     try:
         monitor = PQMonitor()
-        monitor.run()
+
+        # Check if running in GitHub Actions or similar scheduled environment
+        if os.getenv('GITHUB_ACTIONS') or os.getenv('RUN_ONCE'):
+            monitor.run_once()
+        else:
+            monitor.run_continuous()
     except Exception as e:
         logger.error(f"Failed to start monitor: {e}")
         sys.exit(1)
