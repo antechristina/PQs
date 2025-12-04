@@ -1,0 +1,47 @@
+name: QU Monitor
+
+on:
+  schedule:
+    # Run every Monday at 9 AM UTC (adjust timezone as needed)
+    - cron: '0 9 * * 1'
+
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  check-stale-qus:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('qu-monitor/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        cd qu-monitor
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run QU Monitor
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.QU_SLACK_BOT_TOKEN }}
+        SPREADSHEET_ID: ${{ secrets.QU_SPREADSHEET_ID }}
+        SHEET_NAME: ${{ secrets.QU_SHEET_NAME }}
+        GOOGLE_CREDENTIALS_JSON: ${{ secrets.QU_GOOGLE_CREDENTIALS_JSON }}
+        GITHUB_ACTIONS: true
+      run: |
+        cd qu-monitor
+        python qu_monitor.py
