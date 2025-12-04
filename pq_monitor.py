@@ -200,10 +200,10 @@ class PQMonitor:
         # Load environment variables
         load_dotenv()
 
-        # Initialize configuration
-        self.spreadsheet_id = os.getenv('SPREADSHEET_ID')
-        self.sheet_name = os.getenv('SHEET_NAME', 'Sheet1')
-        self.slack_webhook_url = os.getenv('SLACK_WEBHOOK_URL')
+        # Initialize configuration - strip whitespace to handle copy/paste issues
+        self.spreadsheet_id = os.getenv('SPREADSHEET_ID', '').strip()
+        self.sheet_name = os.getenv('SHEET_NAME', 'Sheet1').strip()
+        self.slack_webhook_url = os.getenv('SLACK_WEBHOOK_URL', '').strip()
         self.notification_interval = int(os.getenv('NOTIFICATION_INTERVAL', '10800'))  # 3 hours
         self.check_interval = int(os.getenv('CHECK_INTERVAL', '300'))  # 5 minutes
 
@@ -211,12 +211,12 @@ class PQMonitor:
         self._validate_config()
 
         # Initialize clients - support both file and env var credentials
-        google_creds_path = os.getenv('GOOGLE_CREDENTIALS_PATH')
-        google_creds_json = os.getenv('GOOGLE_CREDENTIALS_JSON')
+        google_creds_path = os.getenv('GOOGLE_CREDENTIALS_PATH', '').strip()
+        google_creds_json = os.getenv('GOOGLE_CREDENTIALS_JSON', '').strip()
 
         self.sheets_client = GoogleSheetsClient(
-            credentials_path=google_creds_path,
-            credentials_json=google_creds_json
+            credentials_path=google_creds_path if google_creds_path else None,
+            credentials_json=google_creds_json if google_creds_json else None
         )
         self.slack_client = SlackNotifier(self.slack_webhook_url)
         self.notification_state = NotificationState()
