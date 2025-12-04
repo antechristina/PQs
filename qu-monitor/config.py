@@ -15,7 +15,7 @@ USER_MAPPING = {
 }
 
 # Initials to ignore
-IGNORED_INITIALS = ['AH']
+IGNORED_INITIALS = ['AH', 'CC']
 
 # Column indices (0-based)
 COLUMN_B_INDEX = 1  # Initials column
