@@ -240,7 +240,7 @@ class PQMonitor:
         self.spreadsheet_id = os.getenv('SPREADSHEET_ID', '').strip()
         self.sheet_name = os.getenv('SHEET_NAME', 'Sheet1').strip()
         self.slack_webhook_url = os.getenv('SLACK_WEBHOOK_URL', '').strip()
-        self.notification_interval = int(os.getenv('NOTIFICATION_INTERVAL', '10800'))  # 3 hours for empty ETA
+        self.notification_interval = int(os.getenv('NOTIFICATION_INTERVAL', '28800'))  # 8 hours for empty ETA
         self.overdue_notification_interval = int(os.getenv('OVERDUE_NOTIFICATION_INTERVAL', '28800'))  # 8 hours for overdue items
         self.check_interval = int(os.getenv('CHECK_INTERVAL', '300'))  # 5 minutes
 
