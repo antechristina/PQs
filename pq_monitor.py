@@ -22,7 +22,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from config import USER_MAPPING, COLUMN_C_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX, START_ROW
+from config import USER_MAPPING, COLUMN_C_INDEX, COLUMN_D_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX, COLUMN_G_INDEX, START_ROW
 
 # Configure logging
 logging.basicConfig(
@@ -192,6 +192,30 @@ class SlackNotifier:
             logger.error(f"Error sending Slack message: {e}")
             return False
 
+    def send_overdue_notification(self, user_id: str, initials: str, row_number: int) -> bool:
+        """Send an overdue notification to a user via webhook"""
+        try:
+            message = f"<@{user_id}> Please update your PQs: row {row_number} is out of date"
+
+            payload = {
+                "text": message
+            }
+
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=10
+            )
+
+            response.raise_for_status()
+            logger.info(f"Sent overdue notification to {initials} (User ID: {user_id}) for row {row_number}")
+            return response.status_code == 200
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error sending Slack message: {e}")
+            return False
+
 
 class PQMonitor:
     """Main monitor class that orchestrates the spreadsheet checking and notifications"""
@@ -241,12 +265,52 @@ class PQMonitor:
             logger.error("Missing Google credentials: provide either GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
             raise ValueError("Missing Google credentials: provide either GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
 
+    def _is_date_in_past(self, date_str: str) -> bool:
+        """Check if a date string is in the past (yesterday or before)"""
+        if not date_str:
+            return False
+
+        try:
+            # Try parsing common date formats
+            date_formats = [
+                '%Y-%m-%d',      # 2025-12-05
+                '%m/%d/%Y',      # 12/05/2025
+                '%m/%d/%y',      # 12/05/25
+                '%d/%m/%Y',      # 05/12/2025
+                '%d/%m/%y',      # 05/12/25
+                '%Y/%m/%d',      # 2025/12/05
+                '%b %d, %Y',     # Dec 05, 2025
+                '%B %d, %Y',     # December 05, 2025
+                '%d %b %Y',      # 05 Dec 2025
+                '%d %B %Y',      # 05 December 2025
+            ]
+
+            parsed_date = None
+            for fmt in date_formats:
+                try:
+                    parsed_date = datetime.strptime(date_str.strip(), fmt)
+                    break
+                except ValueError:
+                    continue
+
+            if parsed_date is None:
+                logger.warning(f"Unable to parse date: {date_str}")
+                return False
+
+            # Compare with today's date (ignoring time)
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            return parsed_date.date() < today.date()
+
+        except Exception as e:
+            logger.error(f"Error parsing date '{date_str}': {e}")
+            return False
+
     def check_and_notify(self):
         """Check the spreadsheet and send notifications as needed"""
         try:
             # Read all data starting from row 3
-            # We need columns A through F, starting from row 3
-            range_notation = f"A{START_ROW}:F"
+            # We need columns A through G, starting from row 3
+            range_notation = f"A{START_ROW}:G"
             rows = self.sheets_client.read_sheet_data(
                 self.spreadsheet_id,
                 self.sheet_name,
@@ -270,14 +334,17 @@ class PQMonitor:
     def _process_row(self, row: List, row_number: int):
         """Process a single row and send notification if needed"""
         # Ensure row has enough columns
-        while len(row) < max(COLUMN_C_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX) + 1:
+        while len(row) < max(COLUMN_C_INDEX, COLUMN_D_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX, COLUMN_G_INDEX) + 1:
             row.append('')
 
         column_c_value = row[COLUMN_C_INDEX].strip() if len(row) > COLUMN_C_INDEX else ''
+        column_d_value = row[COLUMN_D_INDEX].strip() if len(row) > COLUMN_D_INDEX else ''
         column_e_value = row[COLUMN_E_INDEX].strip() if len(row) > COLUMN_E_INDEX else ''
         column_f_value = row[COLUMN_F_INDEX].strip() if len(row) > COLUMN_F_INDEX else ''
+        column_g_value = row[COLUMN_G_INDEX].strip() if len(row) > COLUMN_G_INDEX else ''
 
         row_key = f"row_{row_number}"
+        overdue_row_key = f"overdue_row_{row_number}"
 
         # Check if BOTH Column E and Column F are empty
         if not column_e_value and not column_f_value:
@@ -301,6 +368,47 @@ class PQMonitor:
         else:
             # Either Column E or F has a value, clear any notification state
             self.notification_state.clear_row(row_key)
+
+        # Check for overdue items (date in Column E is in the past)
+        if column_e_value and self._is_date_in_past(column_e_value):
+            # Date is in the past, check status in Column G
+            if column_g_value.lower() == 'in review':
+                # Status is "In Review", tag person from Column D
+                if column_d_value and column_d_value in USER_MAPPING:
+                    if self.notification_state.should_notify(overdue_row_key, self.notification_interval):
+                        user_id = USER_MAPPING[column_d_value]
+                        success = self.slack_client.send_overdue_notification(
+                            user_id,
+                            column_d_value,
+                            row_number
+                        )
+
+                        if success:
+                            self.notification_state.mark_notified(overdue_row_key)
+                    else:
+                        logger.debug(f"Row {row_number}: Too soon to notify {column_d_value} for overdue")
+                elif column_d_value:
+                    logger.warning(f"Row {row_number}: Unknown reviewer initials '{column_d_value}'")
+            elif column_g_value.lower() not in ['done', 'in review']:
+                # Status is NOT "Done" or "In Review", tag person from Column C
+                if column_c_value and column_c_value in USER_MAPPING:
+                    if self.notification_state.should_notify(overdue_row_key, self.notification_interval):
+                        user_id = USER_MAPPING[column_c_value]
+                        success = self.slack_client.send_overdue_notification(
+                            user_id,
+                            column_c_value,
+                            row_number
+                        )
+
+                        if success:
+                            self.notification_state.mark_notified(overdue_row_key)
+                    else:
+                        logger.debug(f"Row {row_number}: Too soon to notify {column_c_value} for overdue")
+                elif column_c_value:
+                    logger.warning(f"Row {row_number}: Unknown initials '{column_c_value}'")
+        else:
+            # Date is not in the past or Column E is empty, clear any overdue notification state
+            self.notification_state.clear_row(overdue_row_key)
 
     def run_once(self):
         """Run a single check cycle (for scheduled execution)"""

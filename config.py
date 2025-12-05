@@ -15,9 +15,11 @@ USER_MAPPING = {
 }
 
 # Column indices (0-based)
-COLUMN_C_INDEX = 2  # Initials column
+COLUMN_C_INDEX = 2  # Initials column (assignee)
+COLUMN_D_INDEX = 3  # Reviewer initials column
 COLUMN_E_INDEX = 4  # ETA column
 COLUMN_F_INDEX = 5  # Additional check column
+COLUMN_G_INDEX = 6  # Status column
 
 # Starting row (1-based, will be converted to 0-based in code)
 START_ROW = 3
