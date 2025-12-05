@@ -192,10 +192,22 @@ class SlackNotifier:
             logger.error(f"Error sending Slack message: {e}")
             return False
 
-    def send_overdue_notification(self, user_id: str, initials: str, row_number: int) -> bool:
-        """Send an overdue notification to a user via webhook"""
+    def send_batched_overdue_notification(self, overdue_items: Dict[str, List[int]]) -> bool:
+        """Send a batched overdue notification for multiple users and rows"""
+        if not overdue_items:
+            return True
+
         try:
-            message = f"<@{user_id}> Please update your PQs: row {row_number} is out of date"
+            # Build message with all overdue items
+            message_parts = []
+            for user_id, rows in overdue_items.items():
+                if len(rows) == 1:
+                    message_parts.append(f"<@{user_id}> Please update your PQs: row {rows[0]} is out of date")
+                else:
+                    rows_str = ", ".join(str(r) for r in sorted(rows))
+                    message_parts.append(f"<@{user_id}> Please update your PQs: rows {rows_str} are out of date")
+
+            message = "\n".join(message_parts)
 
             payload = {
                 "text": message
@@ -209,7 +221,7 @@ class SlackNotifier:
             )
 
             response.raise_for_status()
-            logger.info(f"Sent overdue notification to {initials} (User ID: {user_id}) for row {row_number}")
+            logger.info(f"Sent batched overdue notification for {len(overdue_items)} user(s)")
             return response.status_code == 200
 
         except requests.exceptions.RequestException as e:
@@ -228,7 +240,8 @@ class PQMonitor:
         self.spreadsheet_id = os.getenv('SPREADSHEET_ID', '').strip()
         self.sheet_name = os.getenv('SHEET_NAME', 'Sheet1').strip()
         self.slack_webhook_url = os.getenv('SLACK_WEBHOOK_URL', '').strip()
-        self.notification_interval = int(os.getenv('NOTIFICATION_INTERVAL', '10800'))  # 3 hours
+        self.notification_interval = int(os.getenv('NOTIFICATION_INTERVAL', '28800'))  # 8 hours for empty ETA
+        self.overdue_notification_interval = int(os.getenv('OVERDUE_NOTIFICATION_INTERVAL', '28800'))  # 8 hours for overdue items
         self.check_interval = int(os.getenv('CHECK_INTERVAL', '300'))  # 5 minutes
 
         # Validate configuration
@@ -321,17 +334,33 @@ class PQMonitor:
                 logger.info("No data found in spreadsheet")
                 return
 
+            # Collect overdue items to batch notify
+            overdue_items = {}  # {user_id: [row_numbers]}
+            overdue_batch_key = "overdue_batch"
+
+            # Check if we should send overdue notifications (every 8 hours)
+            should_notify_overdue = self.notification_state.should_notify(
+                overdue_batch_key,
+                self.overdue_notification_interval
+            )
+
             # Process each row
             for idx, row in enumerate(rows):
                 actual_row_number = START_ROW + idx
-                self._process_row(row, actual_row_number)
+                self._process_row(row, actual_row_number, overdue_items, should_notify_overdue)
+
+            # Send batched overdue notifications if any were collected
+            if overdue_items and should_notify_overdue:
+                success = self.slack_client.send_batched_overdue_notification(overdue_items)
+                if success:
+                    self.notification_state.mark_notified(overdue_batch_key)
 
             logger.info(f"Completed check of {len(rows)} rows")
 
         except Exception as e:
             logger.error(f"Error during check and notify cycle: {e}")
 
-    def _process_row(self, row: List, row_number: int):
+    def _process_row(self, row: List, row_number: int, overdue_items: Dict[str, List[int]], should_notify_overdue: bool):
         """Process a single row and send notification if needed"""
         # Ensure row has enough columns
         while len(row) < max(COLUMN_C_INDEX, COLUMN_D_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX, COLUMN_G_INDEX) + 1:
@@ -344,7 +373,6 @@ class PQMonitor:
         column_g_value = row[COLUMN_G_INDEX].strip() if len(row) > COLUMN_G_INDEX else ''
 
         row_key = f"row_{row_number}"
-        overdue_row_key = f"overdue_row_{row_number}"
 
         # Check if BOTH Column E and Column F are empty
         if not column_e_value and not column_f_value:
@@ -373,42 +401,27 @@ class PQMonitor:
         if column_e_value and self._is_date_in_past(column_e_value):
             # Date is in the past, check status in Column G
             if column_g_value.lower() == 'in review':
-                # Status is "In Review", tag person from Column D
+                # Status is "In Review", collect person from Column D for batch notification
                 if column_d_value and column_d_value in USER_MAPPING:
-                    if self.notification_state.should_notify(overdue_row_key, self.notification_interval):
+                    if should_notify_overdue:
                         user_id = USER_MAPPING[column_d_value]
-                        success = self.slack_client.send_overdue_notification(
-                            user_id,
-                            column_d_value,
-                            row_number
-                        )
-
-                        if success:
-                            self.notification_state.mark_notified(overdue_row_key)
-                    else:
-                        logger.debug(f"Row {row_number}: Too soon to notify {column_d_value} for overdue")
+                        if user_id not in overdue_items:
+                            overdue_items[user_id] = []
+                        overdue_items[user_id].append(row_number)
+                        logger.debug(f"Row {row_number}: Added to overdue batch for {column_d_value}")
                 elif column_d_value:
                     logger.warning(f"Row {row_number}: Unknown reviewer initials '{column_d_value}'")
             elif column_g_value.lower() not in ['done', 'in review']:
-                # Status is NOT "Done" or "In Review", tag person from Column C
+                # Status is NOT "Done" or "In Review", collect person from Column C for batch notification
                 if column_c_value and column_c_value in USER_MAPPING:
-                    if self.notification_state.should_notify(overdue_row_key, self.notification_interval):
+                    if should_notify_overdue:
                         user_id = USER_MAPPING[column_c_value]
-                        success = self.slack_client.send_overdue_notification(
-                            user_id,
-                            column_c_value,
-                            row_number
-                        )
-
-                        if success:
-                            self.notification_state.mark_notified(overdue_row_key)
-                    else:
-                        logger.debug(f"Row {row_number}: Too soon to notify {column_c_value} for overdue")
+                        if user_id not in overdue_items:
+                            overdue_items[user_id] = []
+                        overdue_items[user_id].append(row_number)
+                        logger.debug(f"Row {row_number}: Added to overdue batch for {column_c_value}")
                 elif column_c_value:
                     logger.warning(f"Row {row_number}: Unknown initials '{column_c_value}'")
-        else:
-            # Date is not in the past or Column E is empty, clear any overdue notification state
-            self.notification_state.clear_row(overdue_row_key)
 
     def run_once(self):
         """Run a single check cycle (for scheduled execution)"""
