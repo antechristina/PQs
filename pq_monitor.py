@@ -321,6 +321,13 @@ class PQMonitor:
     def check_and_notify(self):
         """Check the spreadsheet and send notifications as needed"""
         try:
+            # Check if today is a weekend (Saturday=5, Sunday=6)
+            today_weekday = datetime.now().weekday()
+            is_weekend = today_weekday in [5, 6]
+
+            if is_weekend:
+                logger.info("Today is a weekend, skipping notifications")
+
             # Read all data starting from row 3
             # We need columns A through G, starting from row 3
             range_notation = f"A{START_ROW}:G"
@@ -338,16 +345,19 @@ class PQMonitor:
             overdue_items = {}  # {user_id: [row_numbers]}
             overdue_batch_key = "overdue_batch"
 
-            # Check if we should send overdue notifications (every 8 hours)
-            should_notify_overdue = self.notification_state.should_notify(
-                overdue_batch_key,
-                self.overdue_notification_interval
+            # Check if we should send overdue notifications (every 8 hours, and not on weekends)
+            should_notify_overdue = (
+                not is_weekend and
+                self.notification_state.should_notify(
+                    overdue_batch_key,
+                    self.overdue_notification_interval
+                )
             )
 
             # Process each row
             for idx, row in enumerate(rows):
                 actual_row_number = START_ROW + idx
-                self._process_row(row, actual_row_number, overdue_items, should_notify_overdue)
+                self._process_row(row, actual_row_number, overdue_items, should_notify_overdue, is_weekend)
 
             # Send batched overdue notifications if any were collected
             if overdue_items and should_notify_overdue:
@@ -360,7 +370,7 @@ class PQMonitor:
         except Exception as e:
             logger.error(f"Error during check and notify cycle: {e}")
 
-    def _process_row(self, row: List, row_number: int, overdue_items: Dict[str, List[int]], should_notify_overdue: bool):
+    def _process_row(self, row: List, row_number: int, overdue_items: Dict[str, List[int]], should_notify_overdue: bool, is_weekend: bool):
         """Process a single row and send notification if needed"""
         # Ensure row has enough columns
         while len(row) < max(COLUMN_C_INDEX, COLUMN_D_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX, COLUMN_G_INDEX) + 1:
@@ -378,8 +388,8 @@ class PQMonitor:
         if not column_e_value and not column_f_value:
             # Both columns E and F are empty, check Column C for initials
             if column_c_value and column_c_value in USER_MAPPING:
-                # Found initials, check if we should send notification
-                if self.notification_state.should_notify(row_key, self.notification_interval):
+                # Found initials, check if we should send notification (not on weekends)
+                if not is_weekend and self.notification_state.should_notify(row_key, self.notification_interval):
                     user_id = USER_MAPPING[column_c_value]
                     success = self.slack_client.send_notification(
                         user_id,
@@ -390,7 +400,10 @@ class PQMonitor:
                     if success:
                         self.notification_state.mark_notified(row_key)
                 else:
-                    logger.debug(f"Row {row_number}: Too soon to notify {column_c_value}")
+                    if is_weekend:
+                        logger.debug(f"Row {row_number}: Skipping notification for {column_c_value} (weekend)")
+                    else:
+                        logger.debug(f"Row {row_number}: Too soon to notify {column_c_value}")
             elif column_c_value:
                 logger.warning(f"Row {row_number}: Unknown initials '{column_c_value}'")
         else:
