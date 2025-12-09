@@ -11,7 +11,7 @@ import json
 import base64
 import logging
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
@@ -39,6 +39,9 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 
 # State file to track last notification times
 STATE_FILE = 'notification_state.json'
+
+# Pacific Time (UTC-8)
+PACIFIC_TZ = timezone(timedelta(hours=-8))
 
 
 class NotificationState:
@@ -73,13 +76,19 @@ class NotificationState:
             return True
 
         last_notification = datetime.fromisoformat(self.state[row_key])
-        time_since_last = datetime.now() - last_notification
+        now_pacific = datetime.now(PACIFIC_TZ)
+
+        # Make last_notification timezone-aware if it isn't already
+        if last_notification.tzinfo is None:
+            last_notification = last_notification.replace(tzinfo=PACIFIC_TZ)
+
+        time_since_last = now_pacific - last_notification
 
         return time_since_last.total_seconds() >= interval_seconds
 
     def mark_notified(self, row_key: str):
-        """Mark a row as notified with current timestamp"""
-        self.state[row_key] = datetime.now().isoformat()
+        """Mark a row as notified with current timestamp (Pacific Time)"""
+        self.state[row_key] = datetime.now(PACIFIC_TZ).isoformat()
         self._save_state()
         logger.info(f"Marked {row_key} as notified at {self.state[row_key]}")
 
@@ -279,7 +288,7 @@ class PQMonitor:
             raise ValueError("Missing Google credentials: provide either GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
 
     def _is_date_in_past(self, date_str: str) -> bool:
-        """Check if a date string is in the past (yesterday or before)"""
+        """Check if a date string is in the past (yesterday or before) using Pacific Time"""
         if not date_str:
             return False
 
@@ -310,9 +319,9 @@ class PQMonitor:
                 logger.warning(f"Unable to parse date: {date_str}")
                 return False
 
-            # Compare with today's date (ignoring time)
-            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            return parsed_date.date() < today.date()
+            # Compare with today's date in Pacific Time (ignoring time)
+            today_pacific = datetime.now(PACIFIC_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+            return parsed_date.date() < today_pacific.date()
 
         except Exception as e:
             logger.error(f"Error parsing date '{date_str}': {e}")
@@ -321,12 +330,12 @@ class PQMonitor:
     def check_and_notify(self):
         """Check the spreadsheet and send notifications as needed"""
         try:
-            # Check if today is a weekend (Saturday=5, Sunday=6)
-            today_weekday = datetime.now().weekday()
+            # Check if today is a weekend in Pacific Time (Saturday=5, Sunday=6)
+            today_weekday = datetime.now(PACIFIC_TZ).weekday()
             is_weekend = today_weekday in [5, 6]
 
             if is_weekend:
-                logger.info("Today is a weekend, skipping notifications")
+                logger.info("Today is a weekend (Pacific Time), skipping notifications")
 
             # Read all data starting from row 3
             # We need columns A through G, starting from row 3
