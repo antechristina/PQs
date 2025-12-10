@@ -237,6 +237,32 @@ class SlackNotifier:
             logger.error(f"Error sending Slack message: {e}")
             return False
 
+    def send_weekly_all_hands_reminder(self, user_ids: List[str]) -> bool:
+        """Send weekly All Hands reminder to all users"""
+        try:
+            # Build message tagging all users
+            user_tags = " ".join([f"<@{user_id}>" for user_id in user_ids])
+            message = f"{user_tags} Please update the statuses of all your action items in the All Hands document. This MUST be done 24h before All Hands meeting"
+
+            payload = {
+                "text": message
+            }
+
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=10
+            )
+
+            response.raise_for_status()
+            logger.info(f"Sent weekly All Hands reminder to {len(user_ids)} user(s)")
+            return response.status_code == 200
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error sending Slack message: {e}")
+            return False
+
 
 class PQMonitor:
     """Main monitor class that orchestrates the spreadsheet checking and notifications"""
@@ -330,12 +356,28 @@ class PQMonitor:
     def check_and_notify(self):
         """Check the spreadsheet and send notifications as needed"""
         try:
-            # Check if today is a weekend in Pacific Time (Saturday=5, Sunday=6)
-            today_weekday = datetime.now(PACIFIC_TZ).weekday()
+            # Get current time in Pacific Time
+            now_pacific = datetime.now(PACIFIC_TZ)
+            today_weekday = now_pacific.weekday()
+            current_hour = now_pacific.hour
+
+            # Check if today is a weekend (Saturday=5, Sunday=6)
             is_weekend = today_weekday in [5, 6]
 
             if is_weekend:
                 logger.info("Today is a weekend (Pacific Time), skipping notifications")
+
+            # Check for weekly All Hands reminder (Tuesday at 5pm PT)
+            # Tuesday is weekday 1, hour 17 is 5pm
+            weekly_reminder_key = "weekly_all_hands_reminder"
+            if today_weekday == 1 and current_hour == 17:
+                # Check if we should send weekly reminder (once per week = 604800 seconds)
+                if self.notification_state.should_notify(weekly_reminder_key, 604800):
+                    all_user_ids = list(USER_MAPPING.values())
+                    success = self.slack_client.send_weekly_all_hands_reminder(all_user_ids)
+                    if success:
+                        self.notification_state.mark_notified(weekly_reminder_key)
+                        logger.info("Sent weekly All Hands reminder")
 
             # Read all data starting from row 3
             # We need columns A through G, starting from row 3
