@@ -43,6 +43,12 @@ STATE_FILE = 'notification_state.json'
 # Pacific Time (UTC-8)
 PACIFIC_TZ = timezone(timedelta(hours=-8))
 
+# Additional users for weekly All Hands reminder only (not tracked in PQs)
+ALL_HANDS_ADDITIONAL_USERS = {
+    'MS': 'U07LTN9NE4S',
+    'EJ': 'U082E1NT33Q',
+}
+
 
 class NotificationState:
     """Manages the state of notifications to track timing intervals"""
@@ -373,8 +379,10 @@ class PQMonitor:
             if today_weekday == 1 and current_hour == 17:
                 # Check if we should send weekly reminder (once per week = 604800 seconds)
                 if self.notification_state.should_notify(weekly_reminder_key, 604800):
-                    # Get all user IDs except CC
-                    all_user_ids = [user_id for initials, user_id in USER_MAPPING.items() if initials != 'CC']
+                    # Get all user IDs except CC, plus additional All Hands users (MS, EJ)
+                    pq_user_ids = [user_id for initials, user_id in USER_MAPPING.items() if initials != 'CC']
+                    additional_user_ids = list(ALL_HANDS_ADDITIONAL_USERS.values())
+                    all_user_ids = pq_user_ids + additional_user_ids
                     success = self.slack_client.send_weekly_all_hands_reminder(all_user_ids)
                     if success:
                         self.notification_state.mark_notified(weekly_reminder_key)
