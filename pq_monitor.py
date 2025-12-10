@@ -373,7 +373,8 @@ class PQMonitor:
             if today_weekday == 1 and current_hour == 17:
                 # Check if we should send weekly reminder (once per week = 604800 seconds)
                 if self.notification_state.should_notify(weekly_reminder_key, 604800):
-                    all_user_ids = list(USER_MAPPING.values())
+                    # Get all user IDs except CC
+                    all_user_ids = [user_id for initials, user_id in USER_MAPPING.items() if initials != 'CC']
                     success = self.slack_client.send_weekly_all_hands_reminder(all_user_ids)
                     if success:
                         self.notification_state.mark_notified(weekly_reminder_key)
