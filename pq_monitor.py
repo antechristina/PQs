@@ -43,6 +43,12 @@ STATE_FILE = 'notification_state.json'
 # Pacific Time (UTC-8)
 PACIFIC_TZ = timezone(timedelta(hours=-8))
 
+# Additional users for weekly All Hands reminder only (not tracked in PQs)
+ALL_HANDS_ADDITIONAL_USERS = {
+    'MS': 'U07LTN9NE4S',
+    'EJ': 'U082E1NT33Q',
+}
+
 
 class NotificationState:
     """Manages the state of notifications to track timing intervals"""
@@ -373,7 +379,10 @@ class PQMonitor:
             if today_weekday == 1 and current_hour == 17:
                 # Check if we should send weekly reminder (once per week = 604800 seconds)
                 if self.notification_state.should_notify(weekly_reminder_key, 604800):
-                    all_user_ids = list(USER_MAPPING.values())
+                    # Get all user IDs except CC, plus additional All Hands users (MS, EJ)
+                    pq_user_ids = [user_id for initials, user_id in USER_MAPPING.items() if initials != 'CC']
+                    additional_user_ids = list(ALL_HANDS_ADDITIONAL_USERS.values())
+                    all_user_ids = pq_user_ids + additional_user_ids
                     success = self.slack_client.send_weekly_all_hands_reminder(all_user_ids)
                     if success:
                         self.notification_state.mark_notified(weekly_reminder_key)
@@ -438,8 +447,8 @@ class PQMonitor:
         # Check if BOTH Column E and Column F are empty
         if not column_e_value and not column_f_value:
             # Both columns E and F are empty, check Column C for initials
-            if column_c_value and column_c_value in USER_MAPPING:
-                # Found initials, check if we should send notification (not on weekends)
+            if column_c_value and column_c_value in USER_MAPPING and column_c_value != 'CC':
+                # Found initials (excluding CC), check if we should send notification (not on weekends)
                 if not is_weekend and self.notification_state.should_notify(row_key, self.notification_interval):
                     user_id = USER_MAPPING[column_c_value]
                     success = self.slack_client.send_notification(
@@ -455,7 +464,7 @@ class PQMonitor:
                         logger.debug(f"Row {row_number}: Skipping notification for {column_c_value} (weekend)")
                     else:
                         logger.debug(f"Row {row_number}: Too soon to notify {column_c_value}")
-            elif column_c_value:
+            elif column_c_value and column_c_value != 'CC':
                 logger.warning(f"Row {row_number}: Unknown initials '{column_c_value}'")
         else:
             # Either Column E or F has a value, clear any notification state
@@ -465,26 +474,26 @@ class PQMonitor:
         if column_e_value and self._is_date_in_past(column_e_value):
             # Date is in the past, check status in Column G
             if column_g_value.lower() == 'in review':
-                # Status is "In Review", collect person from Column D for batch notification
-                if column_d_value and column_d_value in USER_MAPPING:
+                # Status is "In Review", collect person from Column D for batch notification (excluding CC)
+                if column_d_value and column_d_value in USER_MAPPING and column_d_value != 'CC':
                     if should_notify_overdue:
                         user_id = USER_MAPPING[column_d_value]
                         if user_id not in overdue_items:
                             overdue_items[user_id] = []
                         overdue_items[user_id].append(row_number)
                         logger.debug(f"Row {row_number}: Added to overdue batch for {column_d_value}")
-                elif column_d_value:
+                elif column_d_value and column_d_value != 'CC':
                     logger.warning(f"Row {row_number}: Unknown reviewer initials '{column_d_value}'")
             elif column_g_value.lower() not in ['done', 'in review']:
-                # Status is NOT "Done" or "In Review", collect person from Column C for batch notification
-                if column_c_value and column_c_value in USER_MAPPING:
+                # Status is NOT "Done" or "In Review", collect person from Column C for batch notification (excluding CC)
+                if column_c_value and column_c_value in USER_MAPPING and column_c_value != 'CC':
                     if should_notify_overdue:
                         user_id = USER_MAPPING[column_c_value]
                         if user_id not in overdue_items:
                             overdue_items[user_id] = []
                         overdue_items[user_id].append(row_number)
                         logger.debug(f"Row {row_number}: Added to overdue batch for {column_c_value}")
-                elif column_c_value:
+                elif column_c_value and column_c_value != 'CC':
                     logger.warning(f"Row {row_number}: Unknown initials '{column_c_value}'")
 
     def run_once(self):
