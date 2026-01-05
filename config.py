@@ -22,4 +22,4 @@ COLUMN_F_INDEX = 5  # Additional check column
 COLUMN_G_INDEX = 6  # Status column
 
 # Starting row (1-based, will be converted to 0-based in code)
-START_ROW = 3
+START_ROW = 4
