@@ -237,6 +237,30 @@ class SlackNotifier:
             logger.error(f"Error sending Slack message: {e}")
             return False
 
+    def send_in_review_missing_checker_notification(self, user_id: str, initials: str, row_number: int) -> bool:
+        """Send a notification for 'In Review' items missing a designated checker"""
+        try:
+            message = f'<@{user_id}> You have marked your PQ item "In Review" but not designated a "checker" in Column D. Please fill in the DRI to check this. (Row {row_number})'
+
+            payload = {
+                "text": message
+            }
+
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=10
+            )
+
+            response.raise_for_status()
+            logger.info(f"Sent 'In Review' missing checker notification to {initials} (User ID: {user_id}) for row {row_number}")
+            return response.status_code == 200
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error sending Slack message: {e}")
+            return False
+
 
 class PQMonitor:
     """Main monitor class that orchestrates the spreadsheet checking and notifications"""
@@ -447,6 +471,36 @@ class PQMonitor:
                         logger.debug(f"Row {row_number}: Added to overdue batch for {column_c_value}")
                 elif column_c_value and column_c_value != 'CC':
                     logger.warning(f"Row {row_number}: Unknown initials '{column_c_value}'")
+
+        # Check for "In Review" status without designated checker
+        if column_g_value.lower() == 'in review' and not column_d_value:
+            # Status is "In Review" but Column D (checker) is empty
+            if column_c_value and column_c_value in USER_MAPPING and column_c_value != 'CC':
+                # Create a unique key for this type of notification
+                in_review_key = f"in_review_no_checker_{row_number}"
+
+                # Check if we should send notification (not on weekends, respect interval)
+                if not is_weekend and self.notification_state.should_notify(in_review_key, self.notification_interval):
+                    user_id = USER_MAPPING[column_c_value]
+                    success = self.slack_client.send_in_review_missing_checker_notification(
+                        user_id,
+                        column_c_value,
+                        row_number
+                    )
+
+                    if success:
+                        self.notification_state.mark_notified(in_review_key)
+                else:
+                    if is_weekend:
+                        logger.debug(f"Row {row_number}: Skipping 'In Review' missing checker notification for {column_c_value} (weekend)")
+                    else:
+                        logger.debug(f"Row {row_number}: Too soon to notify {column_c_value} about missing checker")
+            elif column_c_value and column_c_value != 'CC':
+                logger.warning(f"Row {row_number}: Unknown initials '{column_c_value}' for 'In Review' missing checker check")
+        else:
+            # If not "In Review" or has a checker, clear the notification state for this check
+            in_review_key = f"in_review_no_checker_{row_number}"
+            self.notification_state.clear_row(in_review_key)
 
     def run_once(self):
         """Run a single check cycle (for scheduled execution)"""
