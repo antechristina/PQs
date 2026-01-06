@@ -72,19 +72,20 @@ class NotificationState:
 
     def should_notify(self, row_key: str, interval_seconds: int) -> bool:
         """Check if enough time has passed since last notification"""
-        if row_key not in self.state:
-            return True
+        #if row_key not in self.state:
+        #    return True
 
-        last_notification = datetime.fromisoformat(self.state[row_key])
-        now_pacific = datetime.now(PACIFIC_TZ)
+        #last_notification = datetime.fromisoformat(self.state[row_key])
+        #now_pacific = datetime.now(PACIFIC_TZ)
 
-        # Make last_notification timezone-aware if it isn't already
-        if last_notification.tzinfo is None:
-            last_notification = last_notification.replace(tzinfo=PACIFIC_TZ)
+        ## Make last_notification timezone-aware if it isn't already
+        #if last_notification.tzinfo is None:
+        #    last_notification = last_notification.replace(tzinfo=PACIFIC_TZ)
 
-        time_since_last = now_pacific - last_notification
+        #time_since_last = now_pacific - last_notification
 
-        return time_since_last.total_seconds() >= interval_seconds
+        #return time_since_last.total_seconds() >= interval_seconds
+        return true
 
     def mark_notified(self, row_key: str):
         """Mark a row as notified with current timestamp (Pacific Time)"""
