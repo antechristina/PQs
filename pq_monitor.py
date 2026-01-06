@@ -222,6 +222,7 @@ class SlackNotifier:
                 "text": message
             }
 
+            logger.debug("Attempting to send batched overdue notifications")
             response = requests.post(
                 self.webhook_url,
                 json=payload,
@@ -246,6 +247,7 @@ class SlackNotifier:
                 "text": message
             }
 
+            logger.debug("Attempting to send 'In Review' missing notifications")
             response = requests.post(
                 self.webhook_url,
                 json=payload,
@@ -397,7 +399,7 @@ class PQMonitor:
 
             # Send batched overdue notifications if any were collected
             if overdue_items and should_notify_overdue:
-                logger.info("Items for slack", overdue_items)
+                logger.debug("Items for slack:", overdue_items)
                 success = self.slack_client.send_batched_overdue_notification(overdue_items)
                 if success:
                     self.notification_state.mark_notified(overdue_batch_key)
@@ -420,6 +422,8 @@ class PQMonitor:
         column_g_value = row[COLUMN_G_INDEX].strip() if len(row) > COLUMN_G_INDEX else ''
 
         row_key = f"row_{row_number}"
+
+        logger.debug(f"Processing {row_number}: {column_c_value} {column_d_value} {column_e_value} {column_f_value} {column_g_value}")
 
         # Check if BOTH Column E and Column F are empty
         if not column_e_value and not column_f_value:
