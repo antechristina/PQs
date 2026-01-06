@@ -72,20 +72,20 @@ class NotificationState:
 
     def should_notify(self, row_key: str, interval_seconds: int) -> bool:
         """Check if enough time has passed since last notification"""
-        #if row_key not in self.state:
-        #    return True
+        logger.info(f"{row_key} in {self.state}?")
+        if row_key not in self.state:
+            return True
 
-        #last_notification = datetime.fromisoformat(self.state[row_key])
-        #now_pacific = datetime.now(PACIFIC_TZ)
+        last_notification = datetime.fromisoformat(self.state[row_key])
+        now_pacific = datetime.now(PACIFIC_TZ)
 
-        ## Make last_notification timezone-aware if it isn't already
-        #if last_notification.tzinfo is None:
-        #    last_notification = last_notification.replace(tzinfo=PACIFIC_TZ)
+        # Make last_notification timezone-aware if it isn't already
+        if last_notification.tzinfo is None:
+            last_notification = last_notification.replace(tzinfo=PACIFIC_TZ)
 
-        #time_since_last = now_pacific - last_notification
+        time_since_last = now_pacific - last_notification
 
-        #return time_since_last.total_seconds() >= interval_seconds
-        return true
+        return time_since_last.total_seconds() >= interval_seconds
 
     def mark_notified(self, row_key: str):
         """Mark a row as notified with current timestamp (Pacific Time)"""
@@ -392,6 +392,7 @@ class PQMonitor:
                     self.overdue_notification_interval
                 )
             )
+            logger.info(f"Should notify overdue: {should_notify_overdue}")
 
             # Process each row
             for idx, row in enumerate(rows):
