@@ -397,6 +397,7 @@ class PQMonitor:
 
             # Send batched overdue notifications if any were collected
             if overdue_items and should_notify_overdue:
+                logger.info("Items for slack", overdue_items)
                 success = self.slack_client.send_batched_overdue_notification(overdue_items)
                 if success:
                     self.notification_state.mark_notified(overdue_batch_key)
