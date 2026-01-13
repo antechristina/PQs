@@ -198,6 +198,15 @@ The script reads rows starting from row 3, checking columns C (initials) and E (
 - If Column E has a value → clear notification state (no spam if they update)
 - If Column C is empty → skip row
 
+### Friday Midday Notification Window
+- On **Fridays between 15:00-17:00** in each user's local timezone, notifications are sent regardless of the normal interval timer
+- This ensures users receive a timely reminder to update their PQs before the weekend
+- User timezones are configured in `config.py` under `USER_TIMEZONE_MAPPING`:
+  - **Pacific Time** (America/Los_Angeles): CTC, JS, JC
+  - **London Time** (Europe/London): DI, RD, CF
+  - **Tokyo Time** (Asia/Tokyo): PC
+- Outside this window, normal notification intervals apply (respects `NOTIFICATION_INTERVAL`)
+
 ### State Tracking
 - `notification_state.json` tracks when each row was last notified
 - Ensures 3-hour minimum between notifications per row

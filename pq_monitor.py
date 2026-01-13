@@ -13,6 +13,12 @@ import logging
 import requests
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
+try:
+    import pytz
+    HAS_PYTZ = True
+except ImportError:
+    pytz = None
+    HAS_PYTZ = False
 
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
@@ -22,7 +28,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from config import USER_MAPPING, COLUMN_C_INDEX, COLUMN_D_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX, COLUMN_G_INDEX, START_ROW
+from config import USER_MAPPING, USER_TIMEZONE_MAPPING, COLUMN_C_INDEX, COLUMN_D_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX, COLUMN_G_INDEX, START_ROW
 
 # Configure logging
 logging.basicConfig(
@@ -314,6 +320,40 @@ class PQMonitor:
             logger.error("Missing Google credentials: provide either GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
             raise ValueError("Missing Google credentials: provide either GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
 
+    def _is_midday_notification_window(self, initials: str) -> bool:
+        """Check if current time is between 15:00 and 17:00 on Friday in the user's timezone"""
+        if not HAS_PYTZ:
+            logger.warning("pytz not installed, falling back to system time")
+            now_local = datetime.now()
+            is_friday = now_local.weekday() == 4  # Monday=0, Friday=4
+            current_hour = now_local.hour
+            return is_friday and 15 <= current_hour < 17
+
+        # Get user's timezone from hardcoded mapping
+        user_tz_str = USER_TIMEZONE_MAPPING.get(initials)
+        if not user_tz_str:
+            logger.warning(f"No timezone mapping for user {initials}, falling back to system time")
+            now_local = datetime.now()
+            is_friday = now_local.weekday() == 4
+            current_hour = now_local.hour
+            return is_friday and 15 <= current_hour < 17
+
+        try:
+            # Get current time in user's timezone
+            user_tz = pytz.timezone(user_tz_str)
+            now_user_tz = datetime.now(pytz.UTC).astimezone(user_tz)
+            is_friday = now_user_tz.weekday() == 4  # Monday=0, Friday=4
+            current_hour = now_user_tz.hour
+
+            return is_friday and 15 <= current_hour < 17
+        except Exception as e:
+            logger.error(f"Error converting to user timezone {user_tz_str}: {e}")
+            # Fallback to system time
+            now_local = datetime.now()
+            is_friday = now_local.weekday() == 4
+            current_hour = now_local.hour
+            return is_friday and 15 <= current_hour < 17
+
     def _is_date_in_past(self, date_str: str) -> bool:
         """Check if a date string is in the past (yesterday or before) using Pacific Time"""
         if not date_str:
@@ -431,9 +471,14 @@ class PQMonitor:
         if not column_e_value and not column_f_value:
             # Both columns E and F are empty, check Column C for initials
             if column_c_value and column_c_value in USER_MAPPING and column_c_value != 'CC':
+                user_id = USER_MAPPING[column_c_value]
+
+                # Check if we're in midday notification window (15:00-17:00 user's local time on Friday)
+                is_midday = self._is_midday_notification_window(column_c_value)
+
                 # Found initials (excluding CC), check if we should send notification (not on weekends)
-                if not is_weekend and self.notification_state.should_notify(row_key, self.notification_interval):
-                    user_id = USER_MAPPING[column_c_value]
+                # Allow notifications during midday window (Friday 15:00-17:00 in user's timezone) even if interval hasn't passed
+                if not is_weekend and (is_midday or self.notification_state.should_notify(row_key, self.notification_interval)):
                     success = self.slack_client.send_notification(
                         user_id,
                         column_c_value,
@@ -442,6 +487,8 @@ class PQMonitor:
 
                     if success:
                         self.notification_state.mark_notified(row_key)
+                        if is_midday:
+                            logger.info(f"Row {row_number}: Sent Friday midday notification to {column_c_value}")
                 else:
                     if is_weekend:
                         logger.debug(f"Row {row_number}: Skipping notification for {column_c_value} (weekend)")
