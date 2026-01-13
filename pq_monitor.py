@@ -315,10 +315,11 @@ class PQMonitor:
             raise ValueError("Missing Google credentials: provide either GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
 
     def _is_midday_notification_window(self) -> bool:
-        """Check if current Pacific Time is between 13:00 and 16:00"""
-        now_pacific = datetime.now(PACIFIC_TZ)
-        current_hour = now_pacific.hour
-        return 13 <= current_hour < 16
+        """Check if current local time is between 13:00 and 16:00 on Friday"""
+        now_local = datetime.now()
+        is_friday = now_local.weekday() == 4  # Monday=0, Friday=4
+        current_hour = now_local.hour
+        return is_friday and 13 <= current_hour < 16
 
     def _is_date_in_past(self, date_str: str) -> bool:
         """Check if a date string is in the past (yesterday or before) using Pacific Time"""
@@ -437,11 +438,11 @@ class PQMonitor:
         if not column_e_value and not column_f_value:
             # Both columns E and F are empty, check Column C for initials
             if column_c_value and column_c_value in USER_MAPPING and column_c_value != 'CC':
-                # Check if we're in midday notification window (13:00-16:00 Pacific Time)
+                # Check if we're in midday notification window (13:00-16:00 local time on Friday)
                 is_midday = self._is_midday_notification_window()
 
                 # Found initials (excluding CC), check if we should send notification (not on weekends)
-                # Allow notifications during midday window even if interval hasn't passed
+                # Allow notifications during midday window (Friday 13:00-16:00) even if interval hasn't passed
                 if not is_weekend and (is_midday or self.notification_state.should_notify(row_key, self.notification_interval)):
                     user_id = USER_MAPPING[column_c_value]
                     success = self.slack_client.send_notification(
@@ -453,7 +454,7 @@ class PQMonitor:
                     if success:
                         self.notification_state.mark_notified(row_key)
                         if is_midday:
-                            logger.info(f"Row {row_number}: Sent midday notification to {column_c_value}")
+                            logger.info(f"Row {row_number}: Sent Friday midday notification to {column_c_value}")
                 else:
                     if is_weekend:
                         logger.debug(f"Row {row_number}: Skipping notification for {column_c_value} (weekend)")
