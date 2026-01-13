@@ -14,6 +14,17 @@ USER_MAPPING = {
     'SR': 'U02QMUE0ELV',
 }
 
+# Mapping of initials to timezones
+USER_TIMEZONE_MAPPING = {
+    'CTC': 'America/Los_Angeles',  # Pacific Time
+    'JS': 'America/Los_Angeles',   # Pacific Time
+    'JC': 'America/Los_Angeles',   # Pacific Time
+    'DI': 'Europe/London',         # London Time
+    'RD': 'Europe/London',         # London Time
+    'CF': 'Europe/London',         # London Time
+    'PC': 'Asia/Tokyo',            # Tokyo Time
+}
+
 # Column indices (0-based)
 COLUMN_C_INDEX = 2  # Initials column (assignee)
 COLUMN_D_INDEX = 3  # Reviewer initials column

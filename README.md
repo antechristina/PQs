@@ -45,9 +45,7 @@ The easiest way to run this monitor is using GitHub Actions, which runs automati
    - Go to your Google Spreadsheet
    - Click "Share" and add this email with "Viewer" permissions
 
-#### 2. Configure Slack Webhook and API Token
-
-##### 2a. Set up Incoming Webhook
+#### 2. Configure Slack Webhook
 
 1. Go to [Slack API](https://api.slack.com/apps)
 2. Create a new app or select an existing app
@@ -58,17 +56,6 @@ The easiest way to run this monitor is using GitHub Actions, which runs automati
 7. Click "Allow"
 8. Copy the Webhook URL (looks like `https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXX`)
 9. Save this URL - you'll need it for GitHub Secrets
-
-##### 2b. Set up OAuth Token (for timezone features)
-
-1. In the same Slack app, go to "OAuth & Permissions" in the left sidebar
-2. Scroll down to "Scopes" section
-3. Under "Bot Token Scopes", click "Add an OAuth Scope"
-4. Add the following scope: `users:read`
-5. Scroll to the top and click "Install to Workspace" (or "Reinstall to Workspace" if already installed)
-6. Click "Allow"
-7. Copy the "Bot User OAuth Token" (starts with `xoxb-`)
-8. Save this token - you'll need it for GitHub Secrets
 
 #### 3. Encode Google Credentials
 
@@ -90,8 +77,7 @@ This will output a base64-encoded string. Copy this string - you'll need it in t
 
 | Secret Name | Value | Where to get it |
 |-------------|-------|-----------------|
-| `SLACK_WEBHOOK_URL` | `https://hooks.slack.com/services/...` | From Slack webhook (step 2a) |
-| `SLACK_API_TOKEN` | `xoxb-...` | From Slack OAuth token (step 2b) |
+| `SLACK_WEBHOOK_URL` | `https://hooks.slack.com/services/...` | From Slack webhook (step 2) |
 | `SPREADSHEET_ID` | `1dDYU1rGKYiiXxcJlYnh4lmM5UBJBPqtYIstZsiJG-ng` | From spreadsheet URL |
 | `SHEET_NAME` | `Sheet1` | Name of the tab in your spreadsheet |
 | `GOOGLE_CREDENTIALS_JSON` | `eyJhbGc...` (base64 string) | From step 3 |
@@ -155,7 +141,6 @@ cp .env.example .env
 Edit `.env`:
 ```
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
-SLACK_API_TOKEN=xoxb-your-token-here
 SPREADSHEET_ID=1dDYU1rGKYiiXxcJlYnh4lmM5UBJBPqtYIstZsiJG-ng
 SHEET_NAME=Sheet1
 GOOGLE_CREDENTIALS_PATH=credentials.json
@@ -214,9 +199,12 @@ The script reads rows starting from row 3, checking columns C (initials) and E (
 - If Column C is empty → skip row
 
 ### Friday Midday Notification Window
-- On **Fridays between 13:00-16:00** in each user's local timezone, notifications are sent regardless of the normal interval timer
+- On **Fridays between 15:00-17:00** in each user's local timezone, notifications are sent regardless of the normal interval timer
 - This ensures users receive a timely reminder to update their PQs before the weekend
-- User timezones are automatically fetched from Slack profiles using the Slack API
+- User timezones are configured in `config.py` under `USER_TIMEZONE_MAPPING`:
+  - **Pacific Time** (America/Los_Angeles): CTC, JS, JC
+  - **London Time** (Europe/London): DI, RD, CF
+  - **Tokyo Time** (Asia/Tokyo): PC
 - Outside this window, normal notification intervals apply (respects `NOTIFICATION_INTERVAL`)
 
 ### State Tracking
