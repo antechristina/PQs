@@ -46,6 +46,7 @@ jobs:
     - name: Run PQ Monitor
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_API_TOKEN: ${{ secrets.SLACK_API_TOKEN }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
         SHEET_NAME: ${{ secrets.SHEET_NAME }}
         GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}

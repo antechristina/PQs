@@ -13,6 +13,12 @@ import logging
 import requests
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
+try:
+    import pytz
+    HAS_PYTZ = True
+except ImportError:
+    pytz = None
+    HAS_PYTZ = False
 
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
@@ -174,9 +180,52 @@ class GoogleSheetsClient:
 class SlackNotifier:
     """Client for sending Slack notifications via webhook"""
 
-    def __init__(self, webhook_url: str):
+    def __init__(self, webhook_url: str, api_token: str = None):
         self.webhook_url = webhook_url
+        self.api_token = api_token
+        self.user_timezone_cache = {}  # Cache user timezones
         logger.info("Slack webhook client initialized")
+
+    def get_user_timezone(self, user_id: str) -> Optional[str]:
+        """Get user's timezone from Slack API"""
+        # Return cached timezone if available
+        if user_id in self.user_timezone_cache:
+            return self.user_timezone_cache[user_id]
+
+        if not self.api_token:
+            logger.warning("No Slack API token provided, cannot fetch user timezone")
+            return None
+
+        try:
+            headers = {
+                'Authorization': f'Bearer {self.api_token}',
+                'Content-Type': 'application/json'
+            }
+
+            response = requests.get(
+                f'https://slack.com/api/users.info',
+                headers=headers,
+                params={'user': user_id},
+                timeout=10
+            )
+
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get('ok') and data.get('user'):
+                timezone = data['user'].get('tz')
+                if timezone:
+                    # Cache the timezone
+                    self.user_timezone_cache[user_id] = timezone
+                    logger.info(f"Fetched timezone for user {user_id}: {timezone}")
+                    return timezone
+            else:
+                logger.warning(f"Failed to fetch user info from Slack: {data.get('error', 'Unknown error')}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching user timezone from Slack: {e}")
+            return None
 
     def send_notification(self, user_id: str, initials: str, row_number: int) -> bool:
         """Send a notification to a user via webhook"""
@@ -286,12 +335,16 @@ class PQMonitor:
         # Initialize clients - support both file and env var credentials
         google_creds_path = os.getenv('GOOGLE_CREDENTIALS_PATH', '').strip()
         google_creds_json = os.getenv('GOOGLE_CREDENTIALS_JSON', '').strip()
+        slack_api_token = os.getenv('SLACK_API_TOKEN', '').strip()
 
         self.sheets_client = GoogleSheetsClient(
             credentials_path=google_creds_path if google_creds_path else None,
             credentials_json=google_creds_json if google_creds_json else None
         )
-        self.slack_client = SlackNotifier(self.slack_webhook_url)
+        self.slack_client = SlackNotifier(
+            self.slack_webhook_url,
+            api_token=slack_api_token if slack_api_token else None
+        )
         self.notification_state = NotificationState()
 
         logger.info("PQ Monitor initialized successfully")
@@ -314,12 +367,39 @@ class PQMonitor:
             logger.error("Missing Google credentials: provide either GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
             raise ValueError("Missing Google credentials: provide either GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON")
 
-    def _is_midday_notification_window(self) -> bool:
-        """Check if current local time is between 13:00 and 16:00 on Friday"""
-        now_local = datetime.now()
-        is_friday = now_local.weekday() == 4  # Monday=0, Friday=4
-        current_hour = now_local.hour
-        return is_friday and 13 <= current_hour < 16
+    def _is_midday_notification_window(self, user_id: str) -> bool:
+        """Check if current time is between 13:00 and 16:00 on Friday in the user's timezone"""
+        if not HAS_PYTZ:
+            logger.warning("pytz not installed, falling back to system time")
+            now_local = datetime.now()
+            is_friday = now_local.weekday() == 4  # Monday=0, Friday=4
+            current_hour = now_local.hour
+            return is_friday and 13 <= current_hour < 16
+
+        # Get user's timezone from Slack
+        user_tz_str = self.slack_client.get_user_timezone(user_id)
+        if not user_tz_str:
+            logger.warning(f"Could not get timezone for user {user_id}, falling back to system time")
+            now_local = datetime.now()
+            is_friday = now_local.weekday() == 4
+            current_hour = now_local.hour
+            return is_friday and 13 <= current_hour < 16
+
+        try:
+            # Get current time in user's timezone
+            user_tz = pytz.timezone(user_tz_str)
+            now_user_tz = datetime.now(pytz.UTC).astimezone(user_tz)
+            is_friday = now_user_tz.weekday() == 4  # Monday=0, Friday=4
+            current_hour = now_user_tz.hour
+
+            return is_friday and 13 <= current_hour < 16
+        except Exception as e:
+            logger.error(f"Error converting to user timezone {user_tz_str}: {e}")
+            # Fallback to system time
+            now_local = datetime.now()
+            is_friday = now_local.weekday() == 4
+            current_hour = now_local.hour
+            return is_friday and 13 <= current_hour < 16
 
     def _is_date_in_past(self, date_str: str) -> bool:
         """Check if a date string is in the past (yesterday or before) using Pacific Time"""
@@ -438,13 +518,14 @@ class PQMonitor:
         if not column_e_value and not column_f_value:
             # Both columns E and F are empty, check Column C for initials
             if column_c_value and column_c_value in USER_MAPPING and column_c_value != 'CC':
-                # Check if we're in midday notification window (13:00-16:00 local time on Friday)
-                is_midday = self._is_midday_notification_window()
+                user_id = USER_MAPPING[column_c_value]
+
+                # Check if we're in midday notification window (13:00-16:00 user's local time on Friday)
+                is_midday = self._is_midday_notification_window(user_id)
 
                 # Found initials (excluding CC), check if we should send notification (not on weekends)
-                # Allow notifications during midday window (Friday 13:00-16:00) even if interval hasn't passed
+                # Allow notifications during midday window (Friday 13:00-16:00 in user's timezone) even if interval hasn't passed
                 if not is_weekend and (is_midday or self.notification_state.should_notify(row_key, self.notification_interval)):
-                    user_id = USER_MAPPING[column_c_value]
                     success = self.slack_client.send_notification(
                         user_id,
                         column_c_value,
