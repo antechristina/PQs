@@ -12,6 +12,7 @@ USER_MAPPING = {
     'CC': 'U01Q1DPP4UX',
     'JC': 'U0248V5LYV6',
     'SR': 'U02QMUE0ELV',
+    'PC': 'U0A6R3BLZ2N',
 }
 
 # Column indices (0-based)
