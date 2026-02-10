@@ -191,30 +191,34 @@ class SlackNotifier:
         try:
             all_user_ids = sorted(set(list(missing_eta_items.keys()) + list(overdue_items.keys())))
 
-            message_parts = []
+            user_blocks = []
             for user_id in all_user_ids:
                 if self.dryrun:
                     name = self._id_to_name.get(user_id, user_id)
                 else:
                     name = f"<@{user_id}>"
 
+                lines = [f"{name} please update the following:"]
+
                 if user_id in missing_eta_items:
                     rows = missing_eta_items[user_id]
                     if len(rows) == 1:
-                        message_parts.append(f"{name} please update your ETA in the PQs (Row {rows[0]})")
+                        lines.append(f"* Your ETA is missing in the PQs (Row {rows[0]})")
                     else:
                         rows_str = ", ".join(str(r) for r in sorted(rows))
-                        message_parts.append(f"{name} please update your ETA in the PQs (Rows {rows_str})")
+                        lines.append(f"* Your ETA is missing in the PQs (Rows {rows_str})")
 
                 if user_id in overdue_items:
                     rows = overdue_items[user_id]
                     if len(rows) == 1:
-                        message_parts.append(f"{name} Please update your PQs: row {rows[0]} is out of date")
+                        lines.append(f"* Your ETA is out of date (Row {rows[0]})")
                     else:
                         rows_str = ", ".join(str(r) for r in sorted(rows))
-                        message_parts.append(f"{name} Please update your PQs: rows {rows_str} are out of date")
+                        lines.append(f"* Your ETA is out of date (Rows {rows_str})")
 
-            message = "\n".join(message_parts)
+                user_blocks.append("\n".join(lines))
+
+            message = "\n\n".join(user_blocks)
 
             if self.dryrun:
                 payload = {"channel": "#j-test", "text": message}
