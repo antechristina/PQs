@@ -391,20 +391,25 @@ class PQMonitor:
             overdue_batch_key = "overdue_batch"
 
             # Check if we should send notifications (every 8 hours, and not on weekends)
-            should_notify_missing_eta = (
-                not is_weekend and
-                self.notification_state.should_notify(
-                    missing_eta_batch_key,
-                    self.notification_interval
+            # In dryrun mode, always notify (ignore cooldown)
+            if self.dryrun:
+                should_notify_missing_eta = True
+                should_notify_overdue = True
+            else:
+                should_notify_missing_eta = (
+                    not is_weekend and
+                    self.notification_state.should_notify(
+                        missing_eta_batch_key,
+                        self.notification_interval
+                    )
                 )
-            )
-            should_notify_overdue = (
-                not is_weekend and
-                self.notification_state.should_notify(
-                    overdue_batch_key,
-                    self.overdue_notification_interval
+                should_notify_overdue = (
+                    not is_weekend and
+                    self.notification_state.should_notify(
+                        overdue_batch_key,
+                        self.overdue_notification_interval
+                    )
                 )
-            )
             logger.info(f"Should notify missing ETAs: {should_notify_missing_eta}")
             logger.info(f"Should notify overdue: {should_notify_overdue}")
 
@@ -419,7 +424,7 @@ class PQMonitor:
 
             if eta_to_send or overdue_to_send:
                 success = self.slack_client.send_combined_notification(eta_to_send, overdue_to_send)
-                if success:
+                if success and not self.dryrun:
                     if eta_to_send:
                         self.notification_state.mark_notified(missing_eta_batch_key)
                     if overdue_to_send:
@@ -489,8 +494,9 @@ class PQMonitor:
                 # Create a unique key for this type of notification
                 in_review_key = f"in_review_no_checker_{row_number}"
 
-                # Check if we should send notification (not on weekends, respect interval)
-                if not is_weekend and self.notification_state.should_notify(in_review_key, self.notification_interval):
+                # Check if we should send notification (not on weekends, respect interval; dryrun ignores cooldown)
+                should_send = self.dryrun or (not is_weekend and self.notification_state.should_notify(in_review_key, self.notification_interval))
+                if should_send:
                     user_id = USER_MAPPING[column_c_value]
                     success = self.slack_client.send_in_review_missing_checker_notification(
                         user_id,
@@ -498,7 +504,7 @@ class PQMonitor:
                         row_number
                     )
 
-                    if success:
+                    if success and not self.dryrun:
                         self.notification_state.mark_notified(in_review_key)
                 else:
                     if is_weekend:
