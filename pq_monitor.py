@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import json
+import argparse
 import base64
 import logging
 import requests
@@ -159,7 +160,8 @@ class GoogleSheetsClient:
         try:
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=spreadsheet_id,
-                range=f"{sheet_name}!{range_notation}"
+                range=f"{sheet_name}!{range_notation}",
+                valueRenderOption='FORMATTED_VALUE'
             ).execute()
 
             values = result.get('values', [])
@@ -174,18 +176,22 @@ class GoogleSheetsClient:
 class SlackNotifier:
     """Client for sending Slack notifications via webhook"""
 
-    def __init__(self, webhook_url: str):
+    def __init__(self, webhook_url: str, dryrun: bool = False):
         self.webhook_url = webhook_url
-        logger.info("Slack webhook client initialized")
+        self.dryrun = dryrun
+        # Build reverse mapping from user_id to initials for dryrun messages
+        self._id_to_name = {v: k for k, v in USER_MAPPING.items()}
+        logger.info(f"Slack webhook client initialized (dryrun={dryrun})")
 
     def send_notification(self, user_id: str, initials: str, row_number: int) -> bool:
         """Send a notification to a user via webhook"""
         try:
-            message = f"<@{user_id}> please update your ETA in the PQs (Row {row_number})"
-
-            payload = {
-                "text": message
-            }
+            if self.dryrun:
+                message = f"{initials} please update your ETA in the PQs (Row {row_number})"
+                payload = {"channel": "#j-test", "text": message}
+            else:
+                message = f"<@{user_id}> please update your ETA in the PQs (Row {row_number})"
+                payload = {"text": message}
 
             response = requests.post(
                 self.webhook_url,
@@ -211,17 +217,22 @@ class SlackNotifier:
             # Build message with all overdue items
             message_parts = []
             for user_id, rows in overdue_items.items():
+                if self.dryrun:
+                    name = self._id_to_name.get(user_id, user_id)
+                else:
+                    name = f"<@{user_id}>"
                 if len(rows) == 1:
-                    message_parts.append(f"<@{user_id}> Please update your PQs: row {rows[0]} is out of date")
+                    message_parts.append(f"{name} Please update your PQs: row {rows[0]} is out of date")
                 else:
                     rows_str = ", ".join(str(r) for r in sorted(rows))
-                    message_parts.append(f"<@{user_id}> Please update your PQs: rows {rows_str} are out of date")
+                    message_parts.append(f"{name} Please update your PQs: rows {rows_str} are out of date")
 
             message = "\n".join(message_parts)
 
-            payload = {
-                "text": message
-            }
+            if self.dryrun:
+                payload = {"channel": "#j-test", "text": message}
+            else:
+                payload = {"text": message}
 
             logger.debug("Attempting to send batched overdue notifications")
             response = requests.post(
@@ -242,11 +253,12 @@ class SlackNotifier:
     def send_in_review_missing_checker_notification(self, user_id: str, initials: str, row_number: int) -> bool:
         """Send a notification for 'In Review' items missing a designated checker"""
         try:
-            message = f'<@{user_id}> You have marked your PQ item "In Review" but not designated a "checker" in Column D. Please fill in the DRI to check this. (Row {row_number})'
-
-            payload = {
-                "text": message
-            }
+            if self.dryrun:
+                message = f'{initials} You have marked your PQ item "In Review" but not designated a "checker" in Column D. Please fill in the DRI to check this. (Row {row_number})'
+                payload = {"channel": "#j-test", "text": message}
+            else:
+                message = f'<@{user_id}> You have marked your PQ item "In Review" but not designated a "checker" in Column D. Please fill in the DRI to check this. (Row {row_number})'
+                payload = {"text": message}
 
             logger.debug("Attempting to send 'In Review' missing notifications")
             response = requests.post(
@@ -268,9 +280,10 @@ class SlackNotifier:
 class PQMonitor:
     """Main monitor class that orchestrates the spreadsheet checking and notifications"""
 
-    def __init__(self):
+    def __init__(self, dryrun: bool = False):
         # Load environment variables
         load_dotenv()
+        self.dryrun = dryrun
 
         # Initialize configuration - strip whitespace to handle copy/paste issues
         self.spreadsheet_id = os.getenv('SPREADSHEET_ID', '').strip()
@@ -291,7 +304,7 @@ class PQMonitor:
             credentials_path=google_creds_path if google_creds_path else None,
             credentials_json=google_creds_json if google_creds_json else None
         )
-        self.slack_client = SlackNotifier(self.slack_webhook_url)
+        self.slack_client = SlackNotifier(self.slack_webhook_url, dryrun=self.dryrun)
         self.notification_state = NotificationState()
 
         logger.info("PQ Monitor initialized successfully")
@@ -543,8 +556,13 @@ class PQMonitor:
 
 def main():
     """Main entry point"""
+    parser = argparse.ArgumentParser(description='PQs Spreadsheet Monitor')
+    parser.add_argument('--dryrun', action='store_true',
+                        help='Send notifications to #j-test channel without @mentioning users')
+    args = parser.parse_args()
+
     try:
-        monitor = PQMonitor()
+        monitor = PQMonitor(dryrun=args.dryrun)
 
         # Check if running in GitHub Actions or similar scheduled environment
         if os.getenv('GITHUB_ACTIONS') or os.getenv('RUN_ONCE'):
