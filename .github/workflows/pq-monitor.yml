@@ -1,10 +1,10 @@
 name: PQs Monitor
 
-# on:
-#   schedule:
-#     # Run every hour at minute 0
-#     # This checks the spreadsheet frequently while respecting the 3-hour notification interval
-#     - cron: '0 * * * *'
+on:
+  schedule:
+    # Run every hour at minute 0
+    # This checks the spreadsheet frequently while respecting the 3-hour notification interval
+    - cron: '0 * * * *'
 
   # Allow manual trigger
   workflow_dispatch:

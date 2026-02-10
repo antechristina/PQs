@@ -27,7 +27,7 @@ from config import USER_MAPPING, COLUMN_C_INDEX, COLUMN_D_INDEX, COLUMN_E_INDEX,
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
