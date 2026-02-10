@@ -183,49 +183,36 @@ class SlackNotifier:
         self._id_to_name = {v: k for k, v in USER_MAPPING.items()}
         logger.info(f"Slack webhook client initialized (dryrun={dryrun})")
 
-    def send_notification(self, user_id: str, initials: str, row_number: int) -> bool:
-        """Send a notification to a user via webhook"""
-        try:
-            if self.dryrun:
-                message = f"{initials} please update your ETA in the PQs (Row {row_number})"
-                payload = {"channel": "#j-test", "text": message}
-            else:
-                message = f"<@{user_id}> please update your ETA in the PQs (Row {row_number})"
-                payload = {"text": message}
-
-            response = requests.post(
-                self.webhook_url,
-                json=payload,
-                headers={'Content-Type': 'application/json'},
-                timeout=10
-            )
-
-            response.raise_for_status()
-            logger.info(f"Sent notification to {initials} (User ID: {user_id}) for row {row_number}")
-            return response.status_code == 200
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error sending Slack message: {e}")
-            return False
-
-    def send_batched_overdue_notification(self, overdue_items: Dict[str, List[int]]) -> bool:
-        """Send a batched overdue notification for multiple users and rows"""
-        if not overdue_items:
+    def send_combined_notification(self, missing_eta_items: Dict[str, List[int]], overdue_items: Dict[str, List[int]]) -> bool:
+        """Send a single combined notification for missing ETAs and overdue items, grouped by user"""
+        if not missing_eta_items and not overdue_items:
             return True
 
         try:
-            # Build message with all overdue items
+            all_user_ids = sorted(set(list(missing_eta_items.keys()) + list(overdue_items.keys())))
+
             message_parts = []
-            for user_id, rows in overdue_items.items():
+            for user_id in all_user_ids:
                 if self.dryrun:
                     name = self._id_to_name.get(user_id, user_id)
                 else:
                     name = f"<@{user_id}>"
-                if len(rows) == 1:
-                    message_parts.append(f"{name} Please update your PQs: row {rows[0]} is out of date")
-                else:
-                    rows_str = ", ".join(str(r) for r in sorted(rows))
-                    message_parts.append(f"{name} Please update your PQs: rows {rows_str} are out of date")
+
+                if user_id in missing_eta_items:
+                    rows = missing_eta_items[user_id]
+                    if len(rows) == 1:
+                        message_parts.append(f"{name} please update your ETA in the PQs (Row {rows[0]})")
+                    else:
+                        rows_str = ", ".join(str(r) for r in sorted(rows))
+                        message_parts.append(f"{name} please update your ETA in the PQs (Rows {rows_str})")
+
+                if user_id in overdue_items:
+                    rows = overdue_items[user_id]
+                    if len(rows) == 1:
+                        message_parts.append(f"{name} Please update your PQs: row {rows[0]} is out of date")
+                    else:
+                        rows_str = ", ".join(str(r) for r in sorted(rows))
+                        message_parts.append(f"{name} Please update your PQs: rows {rows_str} are out of date")
 
             message = "\n".join(message_parts)
 
@@ -234,7 +221,7 @@ class SlackNotifier:
             else:
                 payload = {"text": message}
 
-            logger.debug("Attempting to send batched overdue notifications")
+            logger.debug("Attempting to send combined notifications")
             response = requests.post(
                 self.webhook_url,
                 json=payload,
@@ -243,7 +230,7 @@ class SlackNotifier:
             )
 
             response.raise_for_status()
-            logger.info(f"Sent batched overdue notification for {len(overdue_items)} user(s)")
+            logger.info(f"Sent combined notification for {len(all_user_ids)} user(s)")
             return response.status_code == 200
 
         except requests.exceptions.RequestException as e:
@@ -393,11 +380,20 @@ class PQMonitor:
                 logger.info("No data found in spreadsheet")
                 return
 
-            # Collect overdue items to batch notify
+            # Collect items to batch notify
+            missing_eta_items = {}  # {user_id: [row_numbers]}
             overdue_items = {}  # {user_id: [row_numbers]}
+            missing_eta_batch_key = "missing_eta_batch"
             overdue_batch_key = "overdue_batch"
 
-            # Check if we should send overdue notifications (every 8 hours, and not on weekends)
+            # Check if we should send notifications (every 8 hours, and not on weekends)
+            should_notify_missing_eta = (
+                not is_weekend and
+                self.notification_state.should_notify(
+                    missing_eta_batch_key,
+                    self.notification_interval
+                )
+            )
             should_notify_overdue = (
                 not is_weekend and
                 self.notification_state.should_notify(
@@ -405,27 +401,33 @@ class PQMonitor:
                     self.overdue_notification_interval
                 )
             )
+            logger.info(f"Should notify missing ETAs: {should_notify_missing_eta}")
             logger.info(f"Should notify overdue: {should_notify_overdue}")
 
             # Process each row
             for idx, row in enumerate(rows):
                 actual_row_number = START_ROW + idx
-                self._process_row(row, actual_row_number, overdue_items, should_notify_overdue, is_weekend)
+                self._process_row(row, actual_row_number, missing_eta_items, overdue_items, should_notify_missing_eta, should_notify_overdue, is_weekend)
 
-            # Send batched overdue notifications if any were collected
-            if overdue_items and should_notify_overdue:
-                logger.debug("Items for slack:", overdue_items)
-                success = self.slack_client.send_batched_overdue_notification(overdue_items)
+            # Send combined notification if any items were collected
+            eta_to_send = missing_eta_items if (missing_eta_items and should_notify_missing_eta) else {}
+            overdue_to_send = overdue_items if (overdue_items and should_notify_overdue) else {}
+
+            if eta_to_send or overdue_to_send:
+                success = self.slack_client.send_combined_notification(eta_to_send, overdue_to_send)
                 if success:
-                    self.notification_state.mark_notified(overdue_batch_key)
+                    if eta_to_send:
+                        self.notification_state.mark_notified(missing_eta_batch_key)
+                    if overdue_to_send:
+                        self.notification_state.mark_notified(overdue_batch_key)
 
             logger.info(f"Completed check of {len(rows)} rows")
 
         except Exception as e:
             logger.error(f"Error during check and notify cycle: {e}")
 
-    def _process_row(self, row: List, row_number: int, overdue_items: Dict[str, List[int]], should_notify_overdue: bool, is_weekend: bool):
-        """Process a single row and send notification if needed"""
+    def _process_row(self, row: List, row_number: int, missing_eta_items: Dict[str, List[int]], overdue_items: Dict[str, List[int]], should_notify_missing_eta: bool, should_notify_overdue: bool, is_weekend: bool):
+        """Process a single row and collect items for batched notification"""
         # Ensure row has enough columns
         while len(row) < max(COLUMN_C_INDEX, COLUMN_D_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX, COLUMN_G_INDEX) + 1:
             row.append('')
@@ -436,35 +438,19 @@ class PQMonitor:
         column_f_value = row[COLUMN_F_INDEX].strip() if len(row) > COLUMN_F_INDEX else ''
         column_g_value = row[COLUMN_G_INDEX].strip() if len(row) > COLUMN_G_INDEX else ''
 
-        row_key = f"row_{row_number}"
-
         logger.debug(f"Processing {row_number}: {column_c_value} {column_d_value} {column_e_value} {column_f_value} {column_g_value}")
 
-        # Check if BOTH Column E and Column F are empty
+        # Check if BOTH Column E and Column F are empty (missing ETA)
         if not column_e_value and not column_f_value:
-            # Both columns E and F are empty, check Column C for initials
             if column_c_value and column_c_value in USER_MAPPING and column_c_value != 'CC':
-                # Found initials (excluding CC), check if we should send notification (not on weekends)
-                if not is_weekend and self.notification_state.should_notify(row_key, self.notification_interval):
+                if should_notify_missing_eta:
                     user_id = USER_MAPPING[column_c_value]
-                    success = self.slack_client.send_notification(
-                        user_id,
-                        column_c_value,
-                        row_number
-                    )
-
-                    if success:
-                        self.notification_state.mark_notified(row_key)
-                else:
-                    if is_weekend:
-                        logger.debug(f"Row {row_number}: Skipping notification for {column_c_value} (weekend)")
-                    else:
-                        logger.debug(f"Row {row_number}: Too soon to notify {column_c_value}")
+                    if user_id not in missing_eta_items:
+                        missing_eta_items[user_id] = []
+                    missing_eta_items[user_id].append(row_number)
+                    logger.debug(f"Row {row_number}: Added to missing ETA batch for {column_c_value}")
             elif column_c_value and column_c_value != 'CC':
                 logger.warning(f"Row {row_number}: Unknown initials '{column_c_value}'")
-        else:
-            # Either Column E or F has a value, clear any notification state
-            self.notification_state.clear_row(row_key)
 
         # Check for overdue items (date in Column E is in the past)
         if column_e_value and self._is_date_in_past(column_e_value):
