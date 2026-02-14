@@ -2,9 +2,9 @@ name: PQs Monitor
 
 on:
   schedule:
-    # Run every hour at minute 0
+    # Run every hour at minute 17 (offset from :00 to avoid GitHub Actions scheduling congestion)
     # This checks the spreadsheet frequently while respecting the 3-hour notification interval
-    - cron: '0 * * * *'
+    - cron: '17 * * * *'
 
   # Allow manual trigger
   workflow_dispatch:
