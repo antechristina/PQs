@@ -367,9 +367,13 @@ class PQMonitor:
 
             # Check if today is a weekend (Saturday=5, Sunday=6)
             is_weekend = today_weekday in [5, 6]
+            # Friday=4: always override notification timing and keep notifying
+            is_friday = today_weekday == 4
 
             if is_weekend:
                 logger.info("Today is a weekend (Pacific Time), skipping notifications")
+            if is_friday:
+                logger.info("Today is Friday (Pacific Time), overriding notification timing")
 
             # Read all data starting from row 3
             # We need columns A through G, starting from row 3
@@ -391,8 +395,8 @@ class PQMonitor:
             overdue_batch_key = "overdue_batch"
 
             # Check if we should send notifications (every 8 hours, and not on weekends)
-            # In dryrun mode, always notify (ignore cooldown)
-            if self.dryrun:
+            # In dryrun mode or on Friday, always notify (ignore cooldown)
+            if self.dryrun or is_friday:
                 should_notify_missing_eta = True
                 should_notify_overdue = True
             else:
@@ -416,7 +420,7 @@ class PQMonitor:
             # Process each row
             for idx, row in enumerate(rows):
                 actual_row_number = START_ROW + idx
-                self._process_row(row, actual_row_number, missing_eta_items, overdue_items, should_notify_missing_eta, should_notify_overdue, is_weekend)
+                self._process_row(row, actual_row_number, missing_eta_items, overdue_items, should_notify_missing_eta, should_notify_overdue, is_weekend, is_friday)
 
             # Send combined notification if any items were collected
             eta_to_send = missing_eta_items if (missing_eta_items and should_notify_missing_eta) else {}
@@ -435,7 +439,7 @@ class PQMonitor:
         except Exception as e:
             logger.error(f"Error during check and notify cycle: {e}")
 
-    def _process_row(self, row: List, row_number: int, missing_eta_items: Dict[str, List[int]], overdue_items: Dict[str, List[int]], should_notify_missing_eta: bool, should_notify_overdue: bool, is_weekend: bool):
+    def _process_row(self, row: List, row_number: int, missing_eta_items: Dict[str, List[int]], overdue_items: Dict[str, List[int]], should_notify_missing_eta: bool, should_notify_overdue: bool, is_weekend: bool, is_friday: bool = False):
         """Process a single row and collect items for batched notification"""
         # Ensure row has enough columns
         while len(row) < max(COLUMN_C_INDEX, COLUMN_D_INDEX, COLUMN_E_INDEX, COLUMN_F_INDEX, COLUMN_G_INDEX) + 1:
@@ -494,8 +498,8 @@ class PQMonitor:
                 # Create a unique key for this type of notification
                 in_review_key = f"in_review_no_checker_{row_number}"
 
-                # Check if we should send notification (not on weekends, respect interval; dryrun ignores cooldown)
-                should_send = self.dryrun or (not is_weekend and self.notification_state.should_notify(in_review_key, self.notification_interval))
+                # Check if we should send notification (not on weekends, respect interval; dryrun and Friday ignore cooldown)
+                should_send = self.dryrun or is_friday or (not is_weekend and self.notification_state.should_notify(in_review_key, self.notification_interval))
                 if should_send:
                     user_id = USER_MAPPING[column_c_value]
                     success = self.slack_client.send_in_review_missing_checker_notification(
