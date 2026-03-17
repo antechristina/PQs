@@ -1,0 +1,44 @@
+name: GSheet to Slack
+
+on:
+  schedule:
+    # Run daily at 9:00 AM UTC - adjust as needed
+    - cron: '0 9 * * *'
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  post-rows:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run GSheet to Slack
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        SHEET_NAME: ${{ secrets.SHEET_NAME }}
+        GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+      run: |
+        python gsheet_to_slack.py

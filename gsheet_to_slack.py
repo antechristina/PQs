@@ -37,9 +37,30 @@ COL_H = 7
 
 
 def get_sheets_service():
-    load_dotenv()
+    import base64
+    import json as _json
+
+    creds_json = os.getenv('GOOGLE_CREDENTIALS_JSON', '').strip()
     creds_path = os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json')
-    creds = ServiceAccountCredentials.from_service_account_file(creds_path, scopes=SCOPES)
+
+    if creds_json:
+        try:
+            if creds_json.startswith('ey') or len(creds_json) > 500:
+                try:
+                    creds_info = _json.loads(base64.b64decode(creds_json))
+                except Exception:
+                    creds_info = _json.loads(creds_json)
+            else:
+                creds_info = _json.loads(creds_json)
+            creds = ServiceAccountCredentials.from_service_account_info(creds_info, scopes=SCOPES)
+        except Exception as e:
+            logger.error(f"Error parsing GOOGLE_CREDENTIALS_JSON: {e}")
+            raise
+    elif os.path.exists(creds_path):
+        creds = ServiceAccountCredentials.from_service_account_file(creds_path, scopes=SCOPES)
+    else:
+        raise ValueError("No Google credentials provided: set GOOGLE_CREDENTIALS_JSON or GOOGLE_CREDENTIALS_PATH")
+
     return build('sheets', 'v4', credentials=creds)
 
 
