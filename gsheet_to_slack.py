@@ -91,13 +91,13 @@ def build_slack_message(matching_rows: list) -> str:
     if not matching_rows:
         return "No rows found with column H = 1."
 
-    lines = ["*Rows where column H = 1:*"]
-    for i, row in enumerate(matching_rows, start=1):
+    lines = []
+    for row in matching_rows:
         b = get_cell(row, COL_B)
         c = get_cell(row, COL_C)
         e = get_cell(row, COL_E)
         f = get_cell(row, COL_F)
-        lines.append(f"{i}. B: {b} | C: {c} | E: {e} | F: {f}")
+        lines.append(f"{b} ({c}) ({e} {f})")
 
     return "\n".join(lines)
 
