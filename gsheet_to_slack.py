@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""
+Google Sheet to Slack
+Reads rows from a Google Sheet where column H = 1 and posts
+columns B, C, E, F as a list to a Slack channel.
+"""
+
+import os
+import sys
+import logging
+import requests
+
+from dotenv import load_dotenv
+from google.oauth2.service_account import Credentials as ServiceAccountCredentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
+
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+
+SPREADSHEET_ID = '1dDYU1rGKYiiXxcJlYnh4lmM5UBJBPqtYIstZsiJG-ng'
+SLACK_CHANNEL_ID = 'C08TX1PATPE'
+
+# Column indices (0-based): B=1, C=2, E=4, F=5, H=7
+COL_B = 1
+COL_C = 2
+COL_E = 4
+COL_F = 5
+COL_H = 7
+
+
+def get_sheets_service():
+    load_dotenv()
+    creds_path = os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json')
+    creds = ServiceAccountCredentials.from_service_account_file(creds_path, scopes=SCOPES)
+    return build('sheets', 'v4', credentials=creds)
+
+
+def fetch_rows(service, sheet_name: str = 'Sheet1') -> list:
+    """Fetch all rows from the sheet."""
+    try:
+        result = (
+            service.spreadsheets()
+            .values()
+            .get(spreadsheetId=SPREADSHEET_ID, range=sheet_name)
+            .execute()
+        )
+        return result.get('values', [])
+    except HttpError as e:
+        logger.error(f"Google Sheets API error: {e}")
+        raise
+
+
+def get_cell(row: list, index: int) -> str:
+    """Safely get a cell value from a row."""
+    if index < len(row):
+        return str(row[index]).strip()
+    return ''
+
+
+def build_slack_message(matching_rows: list) -> str:
+    """Format matching rows as a Slack list."""
+    if not matching_rows:
+        return "No rows found with column H = 1."
+
+    lines = ["*Rows where column H = 1:*"]
+    for i, row in enumerate(matching_rows, start=1):
+        b = get_cell(row, COL_B)
+        c = get_cell(row, COL_C)
+        e = get_cell(row, COL_E)
+        f = get_cell(row, COL_F)
+        lines.append(f"{i}. B: {b} | C: {c} | E: {e} | F: {f}")
+
+    return "\n".join(lines)
+
+
+def post_to_slack(token: str, channel: str, message: str) -> bool:
+    """Post a message to a Slack channel using the bot token."""
+    response = requests.post(
+        'https://slack.com/api/chat.postMessage',
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json',
+        },
+        json={'channel': channel, 'text': message},
+        timeout=10,
+    )
+    data = response.json()
+    if not data.get('ok'):
+        logger.error(f"Slack API error: {data.get('error')}")
+        return False
+    logger.info(f"Message posted to {channel}")
+    return True
+
+
+def main():
+    load_dotenv()
+
+    slack_token = os.getenv('SLACK_BOT_TOKEN', '').strip()
+    if not slack_token:
+        logger.error("Missing required environment variable: SLACK_BOT_TOKEN")
+        sys.exit(1)
+
+    sheet_name = os.getenv('SHEET_NAME', 'Sheet1')
+
+    service = get_sheets_service()
+    rows = fetch_rows(service, sheet_name)
+    logger.info(f"Fetched {len(rows)} rows from sheet")
+
+    matching = [row for row in rows if get_cell(row, COL_H) == '1']
+    logger.info(f"Found {len(matching)} row(s) with column H = 1")
+
+    message = build_slack_message(matching)
+    success = post_to_slack(slack_token, SLACK_CHANNEL_ID, message)
+    if not success:
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
