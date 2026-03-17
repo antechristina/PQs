@@ -91,6 +91,8 @@ def build_slack_message(matching_rows: list) -> str:
     if not matching_rows:
         return "No rows found with column H = 1."
 
+    header = "*Upcoming Launch G2M ETAs:*"
+
     # Group rows by date (column E), preserving order
     from collections import OrderedDict
     groups = OrderedDict()
@@ -111,7 +113,7 @@ def build_slack_message(matching_rows: list) -> str:
                 label = sub_labels[i - 1] if (i - 1) < len(sub_labels) else str(i)
                 lines.append(f"    {label}. {b} ({c}) ({date} {f})")
 
-    return "\n".join(lines)
+    return f"<!here>\n{header}\n" + "\n".join(lines)
 
 
 def post_to_slack(token: str, channel: str, message: str) -> bool:
