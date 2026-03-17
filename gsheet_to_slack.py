@@ -101,22 +101,15 @@ def build_slack_message(matching_rows: list) -> str:
     sub_labels = 'abcdefghijklmnopqrstuvwxyz'
     lines = []
     for number, (date, rows) in enumerate(groups.items(), start=1):
-        if len(rows) == 1:
-            row = rows[0]
+        for i, row in enumerate(rows):
             b = get_cell(row, COL_B)
             c = get_cell(row, COL_C)
             f = get_cell(row, COL_F)
-            lines.append(f"{number}. {b} ({c}) ({date} {f})")
-        else:
-            for i, row in enumerate(rows):
-                b = get_cell(row, COL_B)
-                c = get_cell(row, COL_C)
-                f = get_cell(row, COL_F)
-                label = sub_labels[i] if i < len(sub_labels) else str(i + 1)
-                if i == 0:
-                    lines.append(f"{number}. {label}. {b} ({c}) ({date} {f})")
-                else:
-                    lines.append(f"    {label}. {b} ({c}) ({date} {f})")
+            if i == 0:
+                lines.append(f"{number}. {b} ({c}) ({date} {f})")
+            else:
+                label = sub_labels[i - 1] if (i - 1) < len(sub_labels) else str(i)
+                lines.append(f"    {label}. {b} ({c}) ({date} {f})")
 
     return "\n".join(lines)
 
