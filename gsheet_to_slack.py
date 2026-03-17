@@ -108,10 +108,10 @@ def build_slack_message(matching_rows: list) -> str:
             c = get_cell(row, COL_C)
             f = get_cell(row, COL_F)
             if i == 0:
-                lines.append(f"{number}. {b} ({c}) ({date} {f})")
+                lines.append(f"{number}. ({c}) {b} ({date} {f})")
             else:
                 label = sub_labels[i - 1] if (i - 1) < len(sub_labels) else str(i)
-                lines.append(f"    {label}. {b} ({c}) ({date} {f})")
+                lines.append(f"    {label}. ({c}) {b} ({date} {f})")
 
     return f"<!here>\n{header}\n" + "\n".join(lines)
 
