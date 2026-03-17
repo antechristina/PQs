@@ -87,17 +87,29 @@ def get_cell(row: list, index: int) -> str:
 
 
 def build_slack_message(matching_rows: list) -> str:
-    """Format matching rows as a Slack list."""
+    """Format matching rows as a Slack list, grouped by date."""
     if not matching_rows:
         return "No rows found with column H = 1."
 
-    lines = []
+    # Group rows by date (column E), preserving order
+    from collections import OrderedDict
+    groups = OrderedDict()
     for row in matching_rows:
-        b = get_cell(row, COL_B)
-        c = get_cell(row, COL_C)
-        e = get_cell(row, COL_E)
-        f = get_cell(row, COL_F)
-        lines.append(f"{b} ({c}) ({e} {f})")
+        date = get_cell(row, COL_E)
+        groups.setdefault(date, []).append(row)
+
+    sub_labels = 'abcdefghijklmnopqrstuvwxyz'
+    lines = []
+    for number, (date, rows) in enumerate(groups.items(), start=1):
+        for i, row in enumerate(rows):
+            b = get_cell(row, COL_B)
+            c = get_cell(row, COL_C)
+            f = get_cell(row, COL_F)
+            if i == 0:
+                lines.append(f"{number}. {b} ({c}) ({date} {f})")
+            else:
+                label = sub_labels[i - 1] if (i - 1) < len(sub_labels) else str(i)
+                lines.append(f"    {label}. {b} ({c}) ({date} {f})")
 
     return "\n".join(lines)
 
