@@ -99,7 +99,7 @@ class SlackNotifier:
         try:
             # Build message tagging all users
             user_tags = " ".join([f"<@{user_id}>" for user_id in user_ids])
-            message = f"{user_tags} Please update the statuses of all your action items in the All Hands document. This MUST be done 24h before All Hands meeting"
+            message = f"{user_tags} Please update the statuses of all your action items in the [All Hands Action Items Tracker](https://docs.google.com/document/d/1h9HZo3OBIYKUdxRAcfwS01n87rJMNgRshnDfBBQmoaw/edit?tab=t.0). This MUST be done 24h before All Hands meeting"
 
             payload = {
                 "text": message
