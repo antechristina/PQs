@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 
 SPREADSHEET_ID = '1dDYU1rGKYiiXxcJlYnh4lmM5UBJBPqtYIstZsiJG-ng'
-SLACK_CHANNEL_ID = 'C08TX1PATPE'
+SLACK_CHANNEL_ID = 'C0ANCHRNCBT'
 
 # Column indices (0-based): B=1, C=2, E=4, F=5, H=7
 COL_B = 1
