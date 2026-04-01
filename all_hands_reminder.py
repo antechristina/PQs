@@ -33,8 +33,6 @@ PACIFIC_TZ = timezone(timedelta(hours=-8))
 
 # Additional users for weekly All Hands reminder only (not tracked in PQs)
 ALL_HANDS_ADDITIONAL_USERS = {
-    'MS': 'U07LTN9NE4S',
-    'EJ': 'U082E1NT33Q',
 }
 
 
@@ -102,7 +100,8 @@ class SlackNotifier:
             message = f"{user_tags} Please update the statuses of all your action items in the [All Hands Action Items Tracker](https://docs.google.com/document/d/1h9HZo3OBIYKUdxRAcfwS01n87rJMNgRshnDfBBQmoaw/edit?tab=t.0). This MUST be done 24h before All Hands meeting"
 
             payload = {
-                "text": message
+                "text": message,
+                "mrkdwn": True,
             }
 
             response = requests.post(
