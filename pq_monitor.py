@@ -369,6 +369,7 @@ class PQMonitor:
             is_weekend = today_weekday in [5, 6]
             # Friday=4: always override notification timing and keep notifying
             is_friday = today_weekday == 4
+            is_friday = False
 
             if is_weekend:
                 logger.info("Today is a weekend (Pacific Time), skipping notifications")
