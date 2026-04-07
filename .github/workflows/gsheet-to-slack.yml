@@ -3,7 +3,7 @@ name: GSheet to Slack
 on:
   schedule:
     # Run daily at 9:00 AM UTC - adjust as needed
-    - cron: '0 9 * * *'
+    # - cron: '0 9 * * *'
 
   # Allow manual trigger
   workflow_dispatch:
